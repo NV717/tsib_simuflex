@@ -321,7 +321,9 @@ class Building(object):
                         pot_filename,
                         index_col=0,
                         header=None,
-                        parse_dates=True,
+                    ).iloc[:, 0]
+                    fireplaceLoad.index = pd.to_datetime(
+                        fireplaceLoad.index, utc=True
                     )
                 else:
                     # get oven profile depending on activity and outside temperature
@@ -463,8 +465,9 @@ class Building(object):
         if filename[-4:] == ".csv":
             filename = filename[:-4]
         self.timeseries = pd.read_csv(
-            filename + "_dynamic.csv", sep=",", index_col=0, parse_dates=True
+            filename + "_dynamic.csv", sep=",", index_col=0
         )
+        self.timeseries.index = pd.to_datetime(self.timeseries.index, utc=True)
         self.results = pd.read_csv(filename + "_static.csv", sep=",").to_dict()
         return
 
