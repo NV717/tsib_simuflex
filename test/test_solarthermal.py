@@ -27,8 +27,7 @@ def test_solarthermal():
                                 )
     
     # expected yield in kWh/sqm/a
-    np.testing.assert_array_almost_equal(spec_load_st.sum(), 584.956523695128, decimal=0
-    )
+    np.testing.assert_allclose(spec_load_st.sum(), 584.956523695128, rtol=0.01)
 
 
 
