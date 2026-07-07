@@ -314,6 +314,8 @@ class Building(object):
                     + str(cfg["weatherID"])
                     + "_seed"
                     + str(cfg['state_seed'])
+                    + "_var"
+                    + str(i)
                     + ".csv",
                 )
                 if os.path.isfile(pot_filename):
@@ -334,7 +336,7 @@ class Building(object):
                         T_oven_on=5,
                         t_cool=5.0,
                         fullloadSteps=450,
-                        seed=cfg['state_seed'],
+                        seed=int(seeds[i * n_app]),
                     )
                     fireplaceLoad.to_csv(pot_filename, header=False)
 
