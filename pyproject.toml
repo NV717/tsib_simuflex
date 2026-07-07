@@ -66,10 +66,10 @@ exclude = [
     "/static",
 ]
 
-# Dev-only: resolve the sibling tsorb checkout by path so local edits to
-# ../tsorb are picked up without a release. Only affects `uv lock`/`uv sync`
-# in this checkout — does not change the published wheel's dependency
-# metadata (still the tsorb>=... constraint above, resolved from PyPI).
-# CI checks out tsorb as a sibling directory to keep this working there too.
+# Resolve tsorb straight from its GitHub repo instead of PyPI, so tsib
+# always picks up whatever's on tsorb's master branch without needing a
+# PyPI release first. Only affects `uv lock`/`uv sync` — does not change
+# the published wheel's dependency metadata (still the tsorb constraint
+# above).
 [tool.uv.sources]
-tsorb = { path = "../tsorb", editable = true }
+tsorb = { git = "https://github.com/simu-flex-lokal/tsorb", branch = "master" }
