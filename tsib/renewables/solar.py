@@ -150,8 +150,8 @@ def simPhotovoltaic(
 
     if integrateInverter:
         # calculate load after inverter
-        inv_load = pvlib.pvsystem.snlinverter(
-            inverter=inverter, v_dc=sapm_out["v_mp"], p_dc=sapm_out["p_mp"]
+        inv_load = pvlib.inverter.sandia(
+            v_dc=sapm_out["v_mp"], p_dc=sapm_out["p_mp"], inverter=inverter
         )
         # load in [kW/kWp]
         specific_load = inv_load / peak_load

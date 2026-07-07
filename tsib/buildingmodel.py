@@ -105,12 +105,11 @@ class Building(object):
             db_id = db.get(lambda obj: predicate(obj, db_entry))
 
             if db_id:
-                logging.info('Building already exists under ID: ' 
-                    +str(db_id) + '. If you do not want to overwrite the results, define a separate ID.')    
+                logging.info('Building already exists under ID: '
+                    +str(db_id.doc_id) + '. If you do not want to overwrite the results, define a separate ID.')
+                self._ID = db_id.doc_id
             else:
-                db_id = db.insert(db_entry)
-            
-            self._ID = db_id
+                self._ID = db.insert(db_entry)
 
         return self._ID
 
@@ -153,9 +152,9 @@ class Building(object):
             self.timeseries.index = pd.to_datetime(
                 self.timeseries.index, utc=True
             )
-            self.static_results = pd.read_csv(
-                datapath2, index_col=0, squeeze=True, header=None
-            ).to_dict()
+            self.thermalmodel.static_results = pd.read_csv(
+                datapath2, index_col=0, header=None
+            ).squeeze().to_dict()
             return True
         else:
             return False
@@ -323,7 +322,6 @@ class Building(object):
                         index_col=0,
                         header=None,
                         parse_dates=True,
-                        squeeze=True,
                     )
                 else:
                     # get oven profile depending on activity and outside temperature
@@ -541,7 +539,7 @@ class Building(object):
 
             # stores the time series
             self._saveResults()
-        return 
+        return self.timeseries
 
 
     @property

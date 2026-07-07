@@ -1367,7 +1367,8 @@ class Building5R1C(object):
             solver = appsi.solvers.Highs()
             solver.config.stream_solver=True
             solver.highs_options = {"solver": "ipm",
-                                    "simplex_scale_strategy": "off",}
+                                    "simplex_scale_strategy": "off",
+                                    "run_crossover": "off",}
             self.opt_results = solver.solve(self.M)
             print(self.opt_results.termination_condition)
         else:

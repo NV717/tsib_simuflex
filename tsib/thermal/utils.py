@@ -71,6 +71,8 @@ def manageSolverOpts(solver, solverOpts):
 
     defaultOpts_cplex = {"threads": 3}
 
+    defaultOpts_highs = {}
+
     # append default options
     if solver == "gurobi":
         defaultOpts.update(defaultOpts_gurobi)
@@ -87,9 +89,14 @@ def manageSolverOpts(solver, solverOpts):
             solverOpts.pop("Threads")
         if "LogFile" in solverOpts:
             solverOpts.pop("LogFile")
+    elif solver == "highs":
+        # highs is solved separately via appsi.solvers.Highs(); these
+        # options end up unused, but the solver name still needs to
+        # pass validation here
+        defaultOpts.update(defaultOpts_highs)
     else:
         raise ValueError(
-            'Solver name unknown. Please use one of "gurobi", "scip", "cbc", "glpk" or "cplex".'
+            'Solver name unknown. Please use one of "gurobi", "scip", "cbc", "glpk", "cplex" or "highs".'
         )
 
     # just add default options if not defined in solverOpts
