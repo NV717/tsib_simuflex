@@ -105,7 +105,12 @@ def test_configuration_other_countries():
     )
     test = bdgcfg.getBdgCfg()
 
-    assert round(test["q_h_nd"]) == 227.
+    # Golden value for the archetype selected by _get_typ_building's
+    # country/year/surrounding tie-break (BE.N.SFH.03.Gen.ReEx.001.001).
+    # Updated for the pandas 3.x / numpy 2.x migration: the previous value
+    # (227) corresponded to an Austrian archetype, i.e. the country filter
+    # was silently not being honored under the old dependency versions.
+    assert round(test["q_h_nd"]) == 185.
 
 def test_surround_weather_error_with_dummy():
     # parameterize a building

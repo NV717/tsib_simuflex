@@ -1,0 +1,75 @@
+[project]
+name = "tsib"
+version = "0.1.6"
+description = "Time Series Initialization for Buildings"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Leander Kotzur", email = "l.kotzur@fz-juelich.de" },
+]
+requires-python = ">=3.12"
+keywords = [
+    "buildings",
+    "thermal load",
+    "electricity load",
+    "optimization",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "pvlib",
+    "pandas",
+    "Pyomo",
+    "numpy",
+    "matplotlib",
+    "xlrd",
+    "tsorb",
+    "cdsapi",
+    "tinydb",
+    "openpyxl",
+    "highspy",
+]
+
+[project.urls]
+Homepage = "https://github.com/FZJ-IEK3-VSA/tsib"
+
+[dependency-groups]
+dev = ["pytest", "pytest-cov"]
+examples = ["jupyter", "tsam"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tsib"]
+exclude = [
+    "tsib/data/results/**/*.csv",
+    "tsib/data/results/**/*.json",
+]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "tsib/data/results/**/*.csv",
+    "tsib/data/results/**/*.json",
+    "/examples",
+    "/static",
+]
+
+# Dev-only: resolve the sibling tsorb checkout by path so local edits to
+# ../tsorb are picked up without a release. Only affects `uv lock`/`uv sync`
+# in this checkout — does not change the published wheel's dependency
+# metadata (still the tsorb>=... constraint above, resolved from PyPI).
+# CI checks out tsorb as a sibling directory to keep this working there too.
+[tool.uv.sources]
+tsorb = { path = "../tsorb", editable = true }

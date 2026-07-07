@@ -1,0 +1,42 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    env:
+      SOLVER: highs
+    defaults:
+      run:
+        working-directory: tsib
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: tsib
+
+      # tsib/pyproject.toml resolves tsorb via a local sibling path
+      # ([tool.uv.sources]) for dev convenience; check it out alongside so
+      # that resolution works here too. Published wheels still depend on
+      # tsorb via the PyPI version constraint, not this checkout.
+      - uses: actions/checkout@v4
+        with:
+          repository: simu-flex-lokal/tsorb
+          path: tsorb
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run tests
+        run: uv run pytest --cov=tsib test/
