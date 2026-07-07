@@ -50,7 +50,7 @@ def readTMY(filepath=os.path.join("TMY", "Germany DEU Koln (INTL).csv")):
         sep=",",
     )
     data.index = pd.date_range(
-        "2010-01-01 00:30:00", periods=8760, freq="H", tz="Europe/Berlin"
+        "2010-01-01 00:30:00", periods=8760, freq="h", tz="Europe/Berlin"
     )
     data = data.rename(
         columns={"Beam": "DNI", "Diffuse": "DHI", "Tdry": "T", "Wspd": "WS"}
@@ -106,7 +106,7 @@ def readTRY(try_num=4, year=2010):
             filepath + ".dat", sep=r"\s+", skiprows=([i for i in range(0, 36)] + [37])
         )
         data.index = pd.date_range(
-            "2010-01-01 00:30:00", periods=8760, freq="H", tz="Europe/Berlin"
+            "2010-01-01 00:30:00", periods=8760, freq="h", tz="Europe/Berlin"
         )
         data["GHI"] = data["D"] + data["B"]
         data = data.rename(columns={"D": "DHI", "t": "T", "WG": "WS"})
@@ -140,7 +140,7 @@ def calculateDNI(directHI, lon, lat, zenith_tol=87.0):
     DNI: pd.Series
     """
     solarPos = pvlib.solarposition.get_solarposition(directHI.index, lat, lon)
-    solarPos["apparent_zenith"][solarPos.apparent_zenith > zenith_tol] = zenith_tol
+    solarPos.loc[solarPos.apparent_zenith > zenith_tol, "apparent_zenith"] = zenith_tol
     DNI = directHI.div(solarPos["apparent_zenith"].apply(math.radians).apply(math.cos))
     if DNI.isnull().values.any():
         raise ValueError("Something went wrong...")

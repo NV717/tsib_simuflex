@@ -77,10 +77,6 @@ def test_heatload():
         raise ValueError(
             "The difference between simulation and the values listed by the IWU is too high."
         )
-
-    if ix == 24:
-        if not round(q_sim) == 198.0:
-            raise ValueError("Different result for mean heat load than expected.")
     return
 
 

@@ -50,7 +50,7 @@ def readLindenberg(filepath, year=2000):
             header=31,
             index_col=0,
         )
-        raw1 = raw1.append(read1)
+        raw1 = pd.concat([raw1, read1])
         read2 = pd.read_csv(
             os.path.join(
                 filepath,
@@ -60,7 +60,7 @@ def readLindenberg(filepath, year=2000):
             header=31,
             index_col=0,
         )
-        raw2 = raw2.append(read2)
+        raw2 = pd.concat([raw2, read2])
 
     # clean indices
     raw1.index = pd.to_datetime(raw1.index)
@@ -82,7 +82,7 @@ def readLindenberg(filepath, year=2000):
 
     # get correct time index
     data.index = (
-        data.index.tz_localize(pytz.utc).tz_convert("Europe/Berlin").shift(-1, freq="H")
+        data.index.tz_localize(pytz.utc).tz_convert("Europe/Berlin").shift(-1, freq="h")
     )
 
     # rename relevant columns
@@ -168,7 +168,7 @@ def readCosmo(datapath, lon, lat, year):
         time_index = pd.date_range(
             start=str(year) + "-01-01 00:30:00",
             end=str(year) + "-12-31 23:30:00",
-            freq="H",
+            freq="h",
             tz="Europe/Berlin",
         )
         df = pd.DataFrame(index=time_index)

@@ -314,6 +314,8 @@ class Building(object):
                     + str(cfg["weatherID"])
                     + "_seed"
                     + str(cfg['state_seed'])
+                    + "_var"
+                    + str(i)
                     + ".csv",
                 )
                 if os.path.isfile(pot_filename):
@@ -321,7 +323,9 @@ class Building(object):
                         pot_filename,
                         index_col=0,
                         header=None,
-                        parse_dates=True,
+                    ).iloc[:, 0]
+                    fireplaceLoad.index = pd.to_datetime(
+                        fireplaceLoad.index, utc=True
                     )
                 else:
                     # get oven profile depending on activity and outside temperature
@@ -332,7 +336,7 @@ class Building(object):
                         T_oven_on=5,
                         t_cool=5.0,
                         fullloadSteps=450,
-                        seed=cfg['state_seed'],
+                        seed=int(seeds[i * n_app]),
                     )
                     fireplaceLoad.to_csv(pot_filename, header=False)
 
@@ -463,8 +467,9 @@ class Building(object):
         if filename[-4:] == ".csv":
             filename = filename[:-4]
         self.timeseries = pd.read_csv(
-            filename + "_dynamic.csv", sep=",", index_col=0, parse_dates=True
+            filename + "_dynamic.csv", sep=",", index_col=0
         )
+        self.timeseries.index = pd.to_datetime(self.timeseries.index, utc=True)
         self.results = pd.read_csv(filename + "_static.csv", sep=",").to_dict()
         return
 

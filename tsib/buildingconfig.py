@@ -464,12 +464,13 @@ class BuildingConfiguration(object):
         ### Or derive building type from input parameters
         query_parameters = {}
         sort_by = []
+        new_cols = {}
 
         # -- get the country --
         if "country" in kwgs:
             country = kwgs.pop("country")
 
-            iwu_bdgs["country fits"] = iwu_bdgs["Code_Country"] == country
+            new_cols["country fits"] = iwu_bdgs["Code_Country"] == country
             sort_by.append("country fits")
             query_parameters["country"] = country
 
@@ -487,13 +488,13 @@ class BuildingConfiguration(object):
                         '"refurbished" just overwrites the buildingyear from '
                         + str(year_before)
                         + " to "
-                        + str(year) 
+                        + str(year)
                         + " for the chose type of fabric"
                     )
 
             # append distance as query criteria
-            iwu_bdgs["buildingYear fits"] = ((self.iwu_bdgs["Year1_Building"] <= year)
-                & (year <= self.iwu_bdgs["Year2_Building"]))
+            new_cols["buildingYear fits"] = ((iwu_bdgs["Year1_Building"] <= year)
+                & (year <= iwu_bdgs["Year2_Building"]))
             sort_by.append("buildingYear fits")
             query_parameters["buildingYear"] = year
 
@@ -502,10 +503,10 @@ class BuildingConfiguration(object):
         if "buildingType" in kwgs:
             type = kwgs.pop("buildingType")
 
-            iwu_bdgs["buildingType fits"] = iwu_bdgs["Code_BuildingSizeClass"] == type
+            new_cols["buildingType fits"] = iwu_bdgs["Code_BuildingSizeClass"] == type
             sort_by.append("buildingType fits")
             query_parameters["buildingType"] = type
-        
+
 
 
         # -- get the surrounding --
@@ -515,7 +516,7 @@ class BuildingConfiguration(object):
             surDict = {"B_Alone": "Detached", "B_N1": "Semi", "B_N2": "Terraced"}
             iwu_bdgs.replace({"Code_AttachedNeighbours": surDict}, inplace=True)
 
-            iwu_bdgs["surrounding fits"] = iwu_bdgs["Code_AttachedNeighbours"] == sur
+            new_cols["surrounding fits"] = iwu_bdgs["Code_AttachedNeighbours"] == sur
             sort_by.append("surrounding fits")
             query_parameters["surrounding"] = sur
 
@@ -528,10 +529,15 @@ class BuildingConfiguration(object):
                 query_parameters['a_ref'] = kwgs.get("a_ref_app") * kwgs["n_apartments"]
 
             # append distance as query criteria (reverse distance to get the best fit when sorting the values, take min to avoid division by zero)
-            iwu_bdgs["a_ref diff"] = abs(iwu_bdgs["A_C_Ref"] - query_parameters['a_ref'])
-            iwu_bdgs["a_ref fits"] = 1/iwu_bdgs["a_ref diff"].replace(0, 1e-10)
+            a_ref_diff = abs(iwu_bdgs["A_C_Ref"] - query_parameters['a_ref'])
+            new_cols["a_ref fits"] = 1 / a_ref_diff.replace(0, 1e-10)
             sort_by.append("a_ref fits")
 
+        if new_cols:
+            iwu_bdgs = pd.concat(
+                [iwu_bdgs, pd.DataFrame(new_cols, index=iwu_bdgs.index)], axis=1
+            )
+            self.iwu_bdgs = iwu_bdgs
 
         # sort in the merit order of the query parameters
         iwu_bdgs.sort_values(by=sort_by, inplace=True)

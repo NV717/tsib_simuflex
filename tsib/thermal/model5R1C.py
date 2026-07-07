@@ -1145,12 +1145,11 @@ class Building5R1C(object):
                         UserWarning,
                     )
                     M.exVars[dec].value = M.exVars[dec].lb
-            self.detailedRefurbish[dec] = {}
-            self.detailedRefurbish[dec]["Capacity"] = M.exVars[dec].value
-            self.detailedRefurbish[dec]["FixCost"] = (
+            self.detailedRefurbish.loc["Capacity", dec] = M.exVars[dec].value
+            self.detailedRefurbish.loc["FixCost", dec] = (
                 M.exVarCost[dec] * M.exVars[dec].value
             )
-            self.detailedRefurbish[dec]["CAPEX"] = (
+            self.detailedRefurbish.loc["CAPEX", dec] = (
                 M.exVarCAPEX[dec] * M.exVars[dec].value
             )
         self.static_results["Capacity"] = M.bQ_des.value
