@@ -88,6 +88,7 @@ KWARG_TYPES = {
     "hasSolarThermal": bool,  # if the building has solar thermal to provide hot water
     "hasPhotovoltaic": bool,  # if the building has a photovoltaic panel
     "varyoccupancy": int,  # for how many occupancy profiles the building shall be optimized
+    "seed": int,  # overrides the derived state_seed to allow independent stochastic realizations of the same building
     "mean_load": bool,  # if the fluctuative profile or the mean hourly profile should be taken
     "a_roof": "NOT_IMPLEMENTED",  # the total roof area
     "windows_refurbished": "NOT_IMPLEMENTED",  # if the windows have allready been replaced
@@ -426,15 +427,21 @@ class BuildingConfiguration(object):
         self.IDentries["mean_load"] = cfg["mean_load"]
 
         # create seed for every building
-        state_seed = (
-            str(int(cfg["n_persons"]))
-            + str(int(cfg["longitude"] * 100))[2:]
-            + str(int(cfg["A_ref"]))
-        )
-        if len(state_seed) > 8:
-            state_seed = state_seed[:8]
-        state_seed = int(state_seed)
-        cfg['state_seed'] = state_seed
+        if "seed" in kwgs:
+            # explicit override to get an independent stochastic realization
+            # of the same building (physical parameters stay untouched)
+            cfg['state_seed'] = kwgs.pop("seed")
+            self.IDentries["seed"] = cfg['state_seed']
+        else:
+            state_seed = (
+                str(int(cfg["n_persons"]))
+                + str(int(cfg["longitude"] * 100))[2:]
+                + str(int(cfg["A_ref"]))
+            )
+            if len(state_seed) > 8:
+                state_seed = state_seed[:8]
+            state_seed = int(state_seed)
+            cfg['state_seed'] = state_seed
 
         return cfg
 

@@ -112,6 +112,31 @@ def test_configuration_other_countries():
     # was silently not being honored under the old dependency versions.
     assert round(test["q_h_nd"]) == 185.
 
+def test_seed_override():
+    # two configurations with identical physical parameters but different
+    # explicit seeds should get independent state_seeds ...
+    kwgs = {
+        "buildingYear": 1980,
+        "n_persons": 2,
+        "roofOrientation": 0.0,
+        "n_apartments": 1,
+        "surrounding": "Detached",
+        "latitude": 52.,
+        "longitude": 13.,
+    }
+
+    cfg_default = tsib.BuildingConfiguration(dict(kwgs)).getBdgCfg()
+    cfg_seed_1 = tsib.BuildingConfiguration(dict(kwgs, seed=1)).getBdgCfg()
+    cfg_seed_2 = tsib.BuildingConfiguration(dict(kwgs, seed=2)).getBdgCfg()
+
+    assert cfg_seed_1["state_seed"] == 1
+    assert cfg_seed_2["state_seed"] == 2
+    # ... while all other physical parameters remain unaffected
+    for key in ("A_ref", "n_persons", "longitude", "latitude", "q_h_nd"):
+        assert cfg_seed_1[key] == cfg_default[key]
+        assert cfg_seed_2[key] == cfg_default[key]
+
+
 def test_surround_weather_error_with_dummy():
     # parameterize a building
     bdgcfg = tsib.BuildingConfiguration(
