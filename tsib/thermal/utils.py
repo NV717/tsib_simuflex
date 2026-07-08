@@ -57,6 +57,7 @@ def manageSolverOpts(solver, solverOpts):
         "Threads": 3,
         "OptimalityTol": 1e-8,
         "Method": 2,  # interior point/barrier
+        "Crossover": 0,  # skip crossover: it's numerically unstable on this model
         "Cuts": 0,  # no precut of solution spce
         "NodeMethod": 2,  # interior points
         "IntFeasTol": 1e-9,  # small values in order to avoid errors with BigM
@@ -69,7 +70,11 @@ def manageSolverOpts(solver, solverOpts):
 
     defaultOpts_glpk = {}
 
-    defaultOpts_cplex = {"threads": 3}
+    defaultOpts_cplex = {
+        "threads": 3,
+        "lp_method": 4,  # -> "lp method 4": force barrier
+        "barrier_crossover_algorithm": -1,  # -> "barrier crossover algorithm -1": skip crossover, same numerical-stability fix as gurobi/highs
+    }
 
     defaultOpts_highs = {}
 

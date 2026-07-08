@@ -1239,14 +1239,22 @@ class Building5R1C(object):
             try:
                 solver = os.environ["SOLVER"]
             except KeyError:
-                # conside defualt solvers, and choose them in performance priorization
-                DEFAULT_SOLVERS = ["gurobi","cplex","scip","cbc",]
-                for potential_solver in reversed(DEFAULT_SOLVERS):
+                # consider default solvers, and choose them in performance priorization;
+                # 'highs' is last as it's the free, open-source fallback (no license needed)
+                DEFAULT_SOLVERS = ["gurobi", "cplex", "scip", "cbc", "highs"]
+                for potential_solver in DEFAULT_SOLVERS:
                     if opt.SolverFactory(potential_solver).available():
                         solver = potential_solver
+                        break
                 if solver is None:
                     raise LookupError(
-                        "No MILP solver found. Please install one of those:" + "{}".format(DEFAULT_SOLVERS) + " or install another, and declare it with the environment variable 'SOLVER'"
+                        "No MILP solver found. Recommended: install the free, open-source "
+                        "HiGHS solver via `pip install tsib[highs]` (or `uv sync --extra highs` "
+                        "in this repo) - no license required. Alternatively, install a "
+                        "commercial solver (`pip install tsib[gurobi]`/`uv sync --extra gurobi`, "
+                        "which needs a Gurobi license) or install cplex/scip/cbc separately "
+                        "(e.g. `apt install coinor-cbc`), and declare it with the environment "
+                        "variable 'SOLVER' if it isn't auto-detected."
                     )
 
         if solver == "gplk":

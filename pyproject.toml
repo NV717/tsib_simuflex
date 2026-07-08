@@ -37,16 +37,17 @@ dependencies = [
     "cdsapi",
     "tinydb",
     "openpyxl",
-    "highspy",
-    "gurobipy[gurobi]>=13.0.2",
 ]
 
 [project.urls]
-Homepage = "https://github.com/FZJ-IEK3-VSA/tsib"
+Homepage = "https://github.com/simu-flex-lokal/tsib"
 
 [project.optional-dependencies]
 gurobi = [
     "gurobipy>=13.0.2",
+]
+highs = [
+    "highspy",
 ]
 
 [dependency-groups]

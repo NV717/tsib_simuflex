@@ -2479,8 +2479,6 @@ version = "0.1.6"
 source = { editable = "." }
 dependencies = [
     { name = "cdsapi" },
-    { name = "gurobipy" },
-    { name = "highspy" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "openpyxl" },
@@ -2495,6 +2493,9 @@ dependencies = [
 [package.optional-dependencies]
 gurobi = [
     { name = "gurobipy" },
+]
+highs = [
+    { name = "highspy" },
 ]
 
 [package.dev-dependencies]
@@ -2511,8 +2512,7 @@ examples = [
 requires-dist = [
     { name = "cdsapi" },
     { name = "gurobipy", marker = "extra == 'gurobi'", specifier = ">=13.0.2" },
-    { name = "gurobipy", extras = ["gurobi"], specifier = ">=13.0.2" },
-    { name = "highspy" },
+    { name = "highspy", marker = "extra == 'highs'" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "openpyxl" },
@@ -2523,7 +2523,7 @@ requires-dist = [
     { name = "tsorb", git = "https://github.com/simu-flex-lokal/tsorb?branch=master" },
     { name = "xlrd" },
 ]
-provides-extras = ["gurobi"]
+provides-extras = ["gurobi", "highs"]
 
 [package.metadata.requires-dev]
 dev = [
