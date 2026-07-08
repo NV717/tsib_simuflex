@@ -38,10 +38,16 @@ dependencies = [
     "tinydb",
     "openpyxl",
     "highspy",
+    "gurobipy[gurobi]>=13.0.2",
 ]
 
 [project.urls]
 Homepage = "https://github.com/FZJ-IEK3-VSA/tsib"
+
+[project.optional-dependencies]
+gurobi = [
+    "gurobipy>=13.0.2",
+]
 
 [dependency-groups]
 dev = ["pytest", "pytest-cov"]
