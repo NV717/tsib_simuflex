@@ -41,23 +41,3 @@ pv_try.sum()
 
 # %%
 pv_try.plot()
-
-# %% [markdown]
-# ## 2. Simulate with COSMO6 data
-
-# %%
-try_data, identifier = tsib.readCosmo(os.path.join(os.environ['DATA_SHARE'],
-                                              'weather','cosmo','rea6','processed'),
-                                loc['longitude'], loc['latitude'], 2010 )
-
-# %%
-tmy_data = tsib.TRY2TMY(try_data)
-
-# %%
-pv_try, space_cov = tsib.simPhotovoltaic(tmy_data, latitude = loc['latitude'], longitude = loc['longitude'],
-                                    losses = 0.1)
-
-# %%
-pv_try.sum()
-
-# %%

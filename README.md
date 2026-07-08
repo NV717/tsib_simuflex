@@ -56,8 +56,6 @@ or for Anaconda under windows as
 	conda install -c conda-forge coincbc
 
 . Other solvers can be defined by defining the environment variable $SOLVER. 
-	
-To get flexible weather data from the Climate Data Store, register [here](https://cds.climate.copernicus.eu/api-how-to) and follow the instructions to get an own key. Make sure that you have agreed on the [license terms](https://cds.climate.copernicus.eu/cdsapp/#!/terms/licence-to-use-copernicus-products).
 
 	
 ## Examples

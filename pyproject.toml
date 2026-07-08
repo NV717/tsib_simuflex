@@ -34,7 +34,6 @@ dependencies = [
     "matplotlib",
     "xlrd",
     "tsorb",
-    "cdsapi",
     "tinydb",
     "openpyxl",
 ]
