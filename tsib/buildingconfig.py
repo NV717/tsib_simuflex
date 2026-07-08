@@ -72,7 +72,6 @@ KWARG_TYPES = {
     "WACC": float,  # interest rate - otherwise inherited from ownership
     "weatherData": pd.DataFrame,  # time series with the weather
     "weatherID": str,  # identifier of the chosen weather data
-    "getNetCDF4": bool,  # if chosen
     "year": int,  # year for which it shall get optimized
     "longitude": float,  # longitude in degree
     "latitude": float,  # latitude in degree
@@ -114,7 +113,6 @@ KWARG_DEFAULTS = {
     "hasPhotovoltaic": False,  # if it exists already a photovoltaic panel
     "floorHeating": False,  # if a floor heating is available --> set the supply temperature
     "ownership": True,  # if the occupant is also the owner
-    "getNetCDF4": False,  # if chosen
     "year": 2010,  # year for which it shall get optimized
     "longitude": 8.0,  # longitude in degree
     "latitude": 50.0,  # latitude in degree
@@ -352,7 +350,6 @@ class BuildingConfiguration(object):
                 cfg["longitude"],
                 cfg["latitude"],
                 year=kwgs.pop("year"),
-                cosmo=kwgs.pop("getNetCDF4"),
             )
 
         # save relevant ID entries

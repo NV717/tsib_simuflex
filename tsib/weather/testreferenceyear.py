@@ -202,7 +202,7 @@ def TRY2TMY(trydata):
 
 
 
-def getISO12831weather(longitude, latitude, year=2010, cosmo=False):
+def getISO12831weather(longitude, latitude, year=2010):
     """
 
     Gets the test reference year location and the design temperatures for
@@ -212,8 +212,6 @@ def getISO12831weather(longitude, latitude, year=2010, cosmo=False):
     longitude: float
     latitude: float
     year: int, optional (default: 2010)
-    cosmo: bool, optional (default: False)
-        If the weather data shall be extracted from the cosmo database.
     Returns
     -------
     weather (DataFrame with TRY weather)
@@ -242,18 +240,8 @@ def getISO12831weather(longitude, latitude, year=2010, cosmo=False):
     design_T_min = loc_w["Min T"]
 
     # read weather data of related try region
-    if not cosmo:
-        weatherID = "TRY_" + str(loc_w["Climate Zone"])
-        weather, loc = readTRY(try_num=loc_w["Climate Zone"], year=year)
-    else:
-        weather, weatherID = tsib.readCosmo(
-            os.path.join(
-                os.environ["DATA_SHARE"], "weather", "cosmo", "rea6", "processed"
-            ),
-            longitude,
-            latitude,
-            year,
-        )
+    weatherID = "TRY_" + str(loc_w["Climate Zone"])
+    weather, loc = readTRY(try_num=loc_w["Climate Zone"], year=year)
 
     return weather, design_T_min, weatherID
 
