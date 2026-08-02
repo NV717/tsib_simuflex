@@ -198,6 +198,8 @@ def getHouseholdProfiles(
     ignore_weather=True,
     mean_load=True,
     cores=mp.cpu_count() - 1,
+    freq="h",
+    target_index = None,
 ):
     """
     Gets or creates the relevant occupancy profiles for a building
@@ -228,7 +230,8 @@ def getHouseholdProfiles(
     cores: int, optiona(default: mp.cpu_count() - 1)
         Number of cores used for profile generation.
     """
-
+    if target_index is None:
+        target_index = weather_data.index
     # get the potential profile names
     filenames = {}
     for seed in seeds:
@@ -238,7 +241,7 @@ def getHouseholdProfiles(
 
         if mean_load:
             profile_ID = profile_ID + "_mean"
-
+        profile_ID = profile_ID + "_freq" + str(freq)
         filenames[seed] = os.path.join(
             tsib.data.PATH, "results", "occupantprofiles", profile_ID + ".csv"
         )
@@ -270,6 +273,7 @@ def getHouseholdProfiles(
             get_hot_water=True,
             resample_mean=mean_load,
             cores=cores,
+            freq=freq,
         )
     # if single profile just create one profile and avoid multiprocessing
     elif len(not_existing_profiles) > 0:
@@ -279,6 +283,7 @@ def getHouseholdProfiles(
             weather_data=weather_data,
             get_hot_water=True,
             resample_mean=mean_load,
+            freq=freq,
         )
         new_profiles = [one_profile]
 
@@ -289,9 +294,12 @@ def getHouseholdProfiles(
     # load all profiles
     profiles = []
     for seed in seeds:
-        profile = pd.read_csv(filenames[seed], index_col=0)
-        # TODO get a proper indexing in tsorb based on the weather data
-        profile.index = weather_data.index
+        profile = pd.read_csv(filenames[seed], index_col=0).ffill()
+        if len(profile) != len(target_index):
+            raise ValueError(
+                f"freq wrong lengths dont match "
+            )
+        profile.index = target_index
 
         profiles.append(profile)
 

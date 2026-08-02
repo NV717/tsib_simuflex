@@ -243,11 +243,13 @@ class Building(object):
         # get the profiles
         hh_profiles = tsib.getHouseholdProfiles(
             cfg["n_persons"],
-            cfg["weather"],
+            cfg["weather_native"],
             self.IDentries["weather"],
             seeds=seeds,
             ignore_weather=True,
             mean_load=cfg["mean_load"],
+            freq=cfg["freq"],
+            target_index=cfg["weather"].index,
         )
 
         # get short form apartments

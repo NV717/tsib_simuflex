@@ -118,7 +118,30 @@ def readTRY(try_num=4, year=2010):
         data.to_csv(filepath + ".csv")
     return data, location
 
+def resampleweather(data, freq):
+    default_delt = data.index[1] - data.index[0]
+    target_delt = pd.Timedelta(pd.tseries.frequencies.to_offset(freq))
 
+    if target_delt == default_delt:
+        return data
+
+    total = pd.Timedelta(hours=8760)
+
+    if total % target_delt != pd.Timedelta(hours=0):
+        raise ValueError(f"{freq} doesnt work")
+
+    n_per = int(total/target_delt)
+    target = pd.date_range(
+        start=pd.Timestamp(
+            year = data.index[0].year, month=1, day=1, tz = data.index.tz
+        ),
+        periods=n_per,
+        freq=freq
+    )
+
+    new_index = data.index.union(target)
+    data_inter = data.reindex(new_index).interpolate(method="time").reindex(target).ffill().bfill()
+    return data_inter
 
 def calculateDNI(directHI, lon, lat, zenith_tol=87.0):
     """

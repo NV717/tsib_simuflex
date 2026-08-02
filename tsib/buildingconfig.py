@@ -95,6 +95,7 @@ KWARG_TYPES = {
     "roof_refurbished": "NOT_IMPLEMENTED",  # if the roof area has already gotton an additional insulation
     "costdata": str,  # file identifier with the related cost data
     "ventControl": bool, # if the ventilation system can be smart controlled
+    "freq": str, #freq of timeres
 }
 
 KWARG_DEFAULTS = {
@@ -126,6 +127,7 @@ KWARG_DEFAULTS = {
     "mean_load": False,  # if the fluctuative profile or the mean hourly profile should be taken
     "costdata": "default_2016",
     "ventControl": False, # if the ventilation system can be intelligently operated
+    "freq": "h", #default hourly res
 }
 
 
@@ -351,6 +353,18 @@ class BuildingConfiguration(object):
                 cfg["latitude"],
                 year=kwgs.pop("year"),
             )
+
+        # keep normal res weather for tsob calc
+        cfg["weather_native"] = cfg["weather"]
+
+        cfg["freq"] = kwgs.pop("freq")
+
+        try:
+            pd.tseries.frequencies.to_offset(cfg["freq"])
+        except ValueError:
+            raise ValueError(f"freq {cfg['freq']} not valid")
+        cfg["weather"] = tsib.resampleweather(cfg["weather"], cfg["freq"])
+        self.IDentries["freq"] = cfg["freq"]
 
         # save relevant ID entries
         self.IDentries["T_min"] = cfg["design_T_min"]

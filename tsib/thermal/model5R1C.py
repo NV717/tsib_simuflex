@@ -910,7 +910,7 @@ class Building5R1C(object):
             M.ventMaxCon = pyomo.Constraint(M.timeIndex, rule=ventmax)
 
             # average ventilation flow per day
-            M.stepsPerDay = 24
+            M.stepsPerDay = (24 / M.stepSize)
             M.dayIndex = range(0, int(len(M.timeIndex) / M.stepsPerDay))
             # TODO depending on time resolution
             # TODO for typical days
