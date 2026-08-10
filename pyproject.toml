@@ -36,6 +36,10 @@ dependencies = [
     "tsorb",
     "tinydb",
     "openpyxl",
+    "OpenDHW",
+    "ipykernel",
+    "ipympl>=0.10.0",
+    "ipywidgets>=8.1.8",
 ]
 
 [project.urls]
@@ -78,4 +82,7 @@ exclude = [
 # the published wheel's dependency metadata (still the tsorb constraint
 # above).
 [tool.uv.sources]
-tsorb = { git = "https://github.com/simu-flex-lokal/tsorb", branch = "master" }
+#tsorb = { git = "https://github.com/NV717/tsorb_simuflex", branch = "master" }
+#OpenDHW = { git = "https://github.com/NV717/OpenDHW", branch = "main"}
+OpenDHW = { path = "../../OpenDHW/OpenDHW", editable = true }
+tsorb = { path = "../../tsorb_fork/tsorb_simuflex", editable = true }

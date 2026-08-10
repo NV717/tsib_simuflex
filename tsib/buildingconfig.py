@@ -72,7 +72,7 @@ KWARG_TYPES = {
     "WACC": float,  # interest rate - otherwise inherited from ownership
     "weatherData": pd.DataFrame,  # time series with the weather
     "weatherID": str,  # identifier of the chosen weather data
-    "year": int,  # year for which it shall get optimized
+    #"year": int,  # year for which it shall get optimized is removed since new TRYs are used
     "longitude": float,  # longitude in degree
     "latitude": float,  # latitude in degree
     "nightReduction": bool,  # night reduction of comfort temperature
@@ -96,6 +96,13 @@ KWARG_TYPES = {
     "costdata": str,  # file identifier with the related cost data
     "ventControl": bool, # if the ventilation system can be smart controlled
     "freq": str, #freq of timeres
+    "year_type": ["average","hot","cold"],
+    "future": bool,
+    "climateRegion": int, #optional override
+    "buildingAgeBin": str, # uses agebin instead of infering it from the year
+
+
+
 }
 
 KWARG_DEFAULTS = {
@@ -114,9 +121,9 @@ KWARG_DEFAULTS = {
     "hasPhotovoltaic": False,  # if it exists already a photovoltaic panel
     "floorHeating": False,  # if a floor heating is available --> set the supply temperature
     "ownership": True,  # if the occupant is also the owner
-    "year": 2010,  # year for which it shall get optimized
-    "longitude": 8.0,  # longitude in degree
-    "latitude": 50.0,  # latitude in degree
+    #"year": 2010,  # year for which it shall get optimized
+    "longitude": None,  # longitude in degree
+    "latitude": None,  # latitude in degree
     "nightReduction": True,  # night reduction of comfort temperature
     "capControl": True,  # if the heating capacity of the building can be used
     "occControl": False,  # if the heating is adapted to occupancy activity
@@ -128,6 +135,10 @@ KWARG_DEFAULTS = {
     "costdata": "default_2016",
     "ventControl": False, # if the ventilation system can be intelligently operated
     "freq": "h", #default hourly res
+    "year_type": "average",
+    "future": False,
+    "climateRegion": None, #optional override
+    "buildingAgeBin": None,
 }
 
 
@@ -312,13 +323,13 @@ class BuildingConfiguration(object):
         """
         Gets all parameters which are relevant for the operation of the supply and heating system.
         """
+        cfg["longitude"] = kwgs.pop("longitude")  # now optional, default None
         cfg["latitude"] = kwgs.pop("latitude")
-        cfg["longitude"] = kwgs.pop("longitude")
 
         # required weatherdata
-        weather_units = {"DHI": 'W/m^2', "T": '°C', "DNI": 'W/m^2'}
+        weather_units = {"DHI": 'W/m^2', "T": '°C', "DNI": 'W/m^2',"GHI": 'W/m^2'}
         cfg["weatherUnits"] = weather_units
-        
+
         if "weatherData" in kwgs:
             if not "weatherID" in kwgs:
                 raise ValueError(
@@ -326,8 +337,7 @@ class BuildingConfiguration(object):
                 )
             else:
                 cfg["weather"] = kwgs.pop("weatherData")
-                
-                # check if it is the correct weather data
+
                 for key in weather_units:
                     if not key in cfg["weather"].columns:
                         raise ValueError('Column "' + key + '" required in weatherData')
@@ -335,26 +345,38 @@ class BuildingConfiguration(object):
                 cfg["design_T_min"] = cfg["weather"].min()["T"]
                 cfg["weatherID"] = kwgs.pop("weatherID")
                 if (
-                    cfg["longitude"] == KWARG_DEFAULTS["longitude"]
-                    or cfg["latitude"] == KWARG_DEFAULTS["latitude"]
+                        cfg["longitude"] == KWARG_DEFAULTS["longitude"]
+                        or cfg["latitude"] == KWARG_DEFAULTS["latitude"]
                 ):
                     warnings.warn(
                         "longitude and latitude are set to "
                         + "default values. It can cause an error in "
-                        "the solar irration simulation"
+                          "the solar irration simulation"
                     )
-
         else:
-            # get TRY weather and ISO
-            cfg["weather"], cfg["design_T_min"], cfg[
-                "weatherID"
-            ] = tsib.getISO12831weather(
+            cfg["year_type"] = kwgs.pop("year_type")
+            cfg["future"] = kwgs.pop("future")
+            cfg["climateRegion"] = kwgs.pop("climateRegion")
+
+            (cfg["weather"],
+             cfg["design_T_min"],
+             cfg["weatherID"],
+             cfg["longitude"],
+             cfg["latitude"],
+             cfg["weatherFilepath"],
+             cfg["climateRegion"]) \
+                = tsib.getISO12831weather(
                 cfg["longitude"],
                 cfg["latitude"],
-                year=kwgs.pop("year"),
+                year_type=cfg["year_type"],
+                future=cfg["future"],
+                climate_region=cfg["climateRegion"],
             )
+            self.IDentries["year_type"] = cfg["year_type"]
+            self.IDentries["future"] = cfg["future"]
+            self.IDentries["climateRegion"] = cfg["climateRegion"]
 
-        # keep normal res weather for tsob calc
+        # keep normal res weather for tsorb calc
         cfg["weather_native"] = cfg["weather"]
 
         cfg["freq"] = kwgs.pop("freq")
@@ -363,7 +385,7 @@ class BuildingConfiguration(object):
             pd.tseries.frequencies.to_offset(cfg["freq"])
         except ValueError:
             raise ValueError(f"freq {cfg['freq']} not valid")
-        cfg["weather"] = tsib.resampleweather(cfg["weather"], cfg["freq"])
+
         self.IDentries["freq"] = cfg["freq"]
 
         # save relevant ID entries
@@ -371,9 +393,12 @@ class BuildingConfiguration(object):
         self.IDentries["weather"] = cfg["weatherID"]
 
         # get controller booleans
-        for control in ["nightReduction", "occControl", "capControl","ventControl"]:
+        for control in ["nightReduction", "occControl", "capControl", "ventControl"]:
             cfg[control] = kwgs.pop(control)
             self.IDentries[control] = cfg[control]
+
+        # ... (comfort zone / occupancy / elecLoad / fireplace / varyoccupancy /
+        #      mean_load / state_seed sections you already have — unchanged)
 
         # get comfort zone
         cfg["comfortT_lb"] = kwgs.pop("comfortT_lb")
@@ -438,16 +463,18 @@ class BuildingConfiguration(object):
         self.IDentries["mean_load"] = cfg["mean_load"]
 
         # create seed for every building
+
+        # explicit override to get an independent stochastic realization
+        # of the same building (physical parameters stay untouched)
         if "seed" in kwgs:
-            # explicit override to get an independent stochastic realization
-            # of the same building (physical parameters stay untouched)
             cfg['state_seed'] = kwgs.pop("seed")
             self.IDentries["seed"] = cfg['state_seed']
         else:
+            lon_part = str(int(cfg["longitude"] * 100))[2:] if cfg["longitude"] is not None else "0"
             state_seed = (
-                str(int(cfg["n_persons"]))
-                + str(int(cfg["longitude"] * 100))[2:]
-                + str(int(cfg["A_ref"]))
+                    str(int(cfg["n_persons"]))
+                    + lon_part
+                    + str(int(cfg["A_ref"]))
             )
             if len(state_seed) > 8:
                 state_seed = state_seed[:8]
@@ -485,6 +512,7 @@ class BuildingConfiguration(object):
         new_cols = {}
 
         # -- get the country --
+        country = "DE"
         if "country" in kwgs:
             country = kwgs.pop("country")
 
@@ -492,9 +520,23 @@ class BuildingConfiguration(object):
             sort_by.append("country fits")
             query_parameters["country"] = country
 
-
         # -- get the buildingyear --
-        if "buildingYear" in kwgs or "buildnew" in kwgs:
+        bin_code = kwgs.pop("buildingAgeBin")
+        if bin_code is not None:
+            country_bdgs = iwu_bdgs[iwu_bdgs["Code_Country"] == country]
+            valid_bins = sorted(b for b in country_bdgs["Code_ConstructionYearClass"].unique() if b != "0")
+
+            if bin_code not in valid_bins:
+                raise ValueError(f"'buildingAgeBin' needs to be one of {valid_bins} for country '{country}'")
+
+            new_cols["buildingYear fits"] = iwu_bdgs["Code_ConstructionYearClass"] == bin_code
+            sort_by.append("buildingYear fits")
+
+            matched_row = iwu_bdgs[iwu_bdgs["Code_ConstructionYearClass"] == bin_code].iloc[0]
+            query_parameters["buildingYear"] = matched_row["Year1_Building"]
+            self.IDentries["buildingAgeBin"] = bin_code
+
+        elif "buildingYear" in kwgs or "buildnew" in kwgs:
             if kwgs.pop("buildnew"):
                 query_parameters["year"] = 2020
             elif "buildingYear" in kwgs:
@@ -510,9 +552,8 @@ class BuildingConfiguration(object):
                         + " for the chose type of fabric"
                     )
 
-            # append distance as query criteria
             new_cols["buildingYear fits"] = ((iwu_bdgs["Year1_Building"] <= year)
-                & (year <= iwu_bdgs["Year2_Building"]))
+                                             & (year <= iwu_bdgs["Year2_Building"]))
             sort_by.append("buildingYear fits")
             query_parameters["buildingYear"] = year
 
@@ -649,6 +690,8 @@ class BuildingConfiguration(object):
             )
         # force_refurbishment to ID entries
         self.IDentries['force_refurbishment'] = cfg['force_refurbishment']
+
+        cfg["buildingType"] = iwu_bdg["Code_BuildingSizeClass"]
 
         return cfg
 
@@ -812,13 +855,9 @@ def get_shape(bdg, iwu_bdg, a_ref):
     for wall in ["Wall_1", "Wall_2", "Wall_3"]:
         bdg["A_" + wall] = iwu_bdg["A_" + wall] * (ratio ** 0.5)
     for roof in ["Roof_1", "Roof_2"]:
-        bdg["A_" + roof] = iwu_bdg["A_" + roof] * (
-            1 + (ratio - 1) / iwu_bdg["n_Storey"]
-        )
+        bdg["A_" + roof] = iwu_bdg["A_" + roof] * (1 + (ratio - 1) / max(iwu_bdg["n_Storey"], 1))
     for floor in ["Floor_1", "Floor_2"]:
-        bdg["A_" + floor] = iwu_bdg["A_" + floor] * (
-            1 + (ratio - 1) / iwu_bdg["n_Storey"]
-        )
+        bdg["A_" + floor] = iwu_bdg["A_" + floor] * (1 + (ratio - 1) / max(iwu_bdg["n_Storey"], 1))
     for door in ["Door_1"]:
         bdg["A_" + door] = iwu_bdg["A_" + door] * (ratio ** 0.5)
     return bdg

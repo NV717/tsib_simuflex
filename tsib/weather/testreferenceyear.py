@@ -66,6 +66,45 @@ def readTMY(filepath=os.path.join("TMY", "Germany DEU Koln (INTL).csv")):
     }
     return data, location
 
+def _find_data_start(filepath):
+    with open(filepath, encoding="utf-8") as fp:
+        for i, line in enumerate(fp):
+            if line.strip().startswith("***"):
+                return i
+    raise ValueError(f"No '***' separator found in {filepath}")
+
+def _parse_latlon_from_file(filename):
+    code = filename.split("_")[1]
+    lat = int(code[:6]) / 10000
+    lon = int(code[6:]) / 10000
+    return lat, lon
+
+def _pick_station_file(region, year_type, future, seed):
+    variant = {"average": "Jahr", "hot": "Somm", "cold": "Wint"}[year_type]
+    folder = os.path.join(
+        tsib.data.PATH, "weatherdata",
+        "TRY2045" if future else "TRY2015", f"{int(region):02d}",
+    )
+    candidates = sorted(f for f in os.listdir(folder) if f.endswith(f"_{variant}.dat"))
+    if not candidates:
+        raise FileNotFoundError(f"No TRY files for region {region}, variant {variant} in {folder}")
+    chosen = np.random.RandomState(seed).choice(candidates)
+    return os.path.join(folder, chosen[:-4])
+
+def readTRYnew(filepath, latitude, longitude):
+    data_start = _find_data_start(filepath + ".dat")
+    header_row = data_start - 1
+    data = pd.read_csv(
+        filepath + ".dat", sep=r"\s+",
+        skiprows=[i for i in range(header_row)] + [data_start],
+    )
+    data.index = pd.date_range(
+        "2010-01-01 00:30:00", periods=8760, freq="h", tz="Europe/Berlin"
+    )
+    data["GHI"] = data["D"] + data["B"]
+    data = data.rename(columns={"D": "DHI", "t": "T", "WG": "WS"})
+    data["DNI"] = calculateDNI(data["B"], longitude, latitude)
+    return data
 
 
 def readTRY(try_num=4, year=2010):
@@ -106,7 +145,7 @@ def readTRY(try_num=4, year=2010):
             filepath + ".dat", sep=r"\s+", skiprows=([i for i in range(0, 36)] + [37])
         )
         data.index = pd.date_range(
-            "2010-01-01 00:30:00", periods=8760, freq="h", tz="Europe/Berlin"
+            "2010-01-01 00:30:00", periods=8760, freq="h", tz="Europe/Berlin" # 2010 hardcoded as generic placeholder year since the actual year is unimportant
         )
         data["GHI"] = data["D"] + data["B"]
         data = data.rename(columns={"D": "DHI", "t": "T", "WG": "WS"})
@@ -118,12 +157,12 @@ def readTRY(try_num=4, year=2010):
         data.to_csv(filepath + ".csv")
     return data, location
 
-def resampleweather(data, freq):
+def targetdaterange(data, freq):
     default_delt = data.index[1] - data.index[0]
     target_delt = pd.Timedelta(pd.tseries.frequencies.to_offset(freq))
 
     if target_delt == default_delt:
-        return data
+        return data.index
 
     total = pd.Timedelta(hours=8760)
 
@@ -139,9 +178,15 @@ def resampleweather(data, freq):
         freq=freq
     )
 
-    new_index = data.index.union(target)
-    data_inter = data.reindex(new_index).interpolate(method="time").reindex(target).ffill().bfill()
-    return data_inter
+    return target
+
+def resampletoindex(data, target_index):
+
+    if data.index.equals(target_index):
+        return data
+
+    new_index = data.index.union(target_index)
+    return data.reindex(new_index).interpolate(method="time").reindex(target_index).ffill().bfill()
 
 def calculateDNI(directHI, lon, lat, zenith_tol=87.0):
     """
@@ -223,49 +268,76 @@ def TRY2TMY(trydata):
         }
     )
 
-
-
-def getISO12831weather(longitude, latitude, year=2010):
-    """
-
-    Gets the test reference year location and the design temperatures for
-    the heating system based on the ISO12831.
-    Parameters
-    ----------
-    longitude: float
-    latitude: float
-    year: int, optional (default: 2010)
-    Returns
-    -------
-    weather (DataFrame with TRY weather)
-    T_min (design temperature for heating),
-    weatherID (str with climate zone)
-    """
-
-    # read weather zones
+def getISO12831weather(longitude=None, latitude=None, year_type="average",
+                        future=False, climate_region=None, seed=None):
     wzones = pd.read_csv(
         os.path.join(tsib.data.PATH, "weatherdata", "ISO12831", "T_zones_Ger_final.csv"),
-        index_col=0,
-        encoding="ISO-8859-1",
+        index_col=0, encoding="ISO-8859-1",
     )
 
-    # get distance to all reference weather station points
-    dist = ((wzones["Lat"] - latitude) ** 2 + (wzones["Lng"] - longitude) ** 2) ** 0.5
+    if climate_region is None:
+        dist = ((wzones["Lat"] - latitude) ** 2 + (wzones["Lng"] - longitude) ** 2) ** 0.5
+        if min(dist) > 5:
+            raise NotImplementedError("The weather data is at the moment only implemented for Germany")
+        loc_w = wzones.loc[dist.idxmin(), :]
+        climate_region = loc_w["Climate Zone"]
+        design_T_min = loc_w["Min T"]
+    else:
+        design_T_min = wzones.loc[wzones["Climate Zone"] == climate_region, "Min T"].iloc[0]
 
-    # if distance to next reference position is to high.
-    if min(dist) > 5:
-        raise NotImplementedError(
-            "The weather data is at the moment" + " only implemented for Germany"
-        )
+    if seed is None:
+        seed = int(abs(latitude * 1000) + abs(longitude * 1000)) if latitude is not None else int(climate_region)
 
-    # get the data from the one with the minimal distance
-    loc_w = wzones.loc[dist.idxmin(), :]
-    design_T_min = loc_w["Min T"]
+    filepath = _pick_station_file(climate_region, year_type, future, seed)
+    station_lat, station_lon = _parse_latlon_from_file(os.path.basename(filepath))
+    weather = readTRYnew(filepath, station_lat, station_lon)
+    if latitude is None:
+        latitude, longitude = station_lat, station_lon
+    weatherID = f"TRY{2045 if future else 2015}_{climate_region}_{year_type}_{os.path.basename(filepath)}"
 
-    # read weather data of related try region
-    weatherID = "TRY_" + str(loc_w["Climate Zone"])
-    weather, loc = readTRY(try_num=loc_w["Climate Zone"], year=year)
+    return weather, design_T_min, weatherID, longitude, latitude, filepath, climate_region
 
-    return weather, design_T_min, weatherID
+# def getISO12831weather(longitude, latitude, year=2010):
+#     """
+#
+#     Gets the test reference year location and the design temperatures for
+#     the heating system based on the ISO12831.
+#     Parameters
+#     ----------
+#     longitude: float
+#     latitude: float
+#     year: int, optional (default: 2010)
+#     Returns
+#     -------
+#     weather (DataFrame with TRY weather)
+#     T_min (design temperature for heating),
+#     weatherID (str with climate zone)
+#     """
+#
+#     # read weather zones
+#     wzones = pd.read_csv(
+#         os.path.join(tsib.data.PATH, "weatherdata", "ISO12831", "T_zones_Ger_final.csv"),
+#         index_col=0,
+#         encoding="ISO-8859-1",
+#     )
+#
+#     # get distance to all reference weather station points
+#     dist = ((wzones["Lat"] - latitude) ** 2 + (wzones["Lng"] - longitude) ** 2) ** 0.5
+#
+#     # if distance to next reference position is to high.
+#     if min(dist) > 5:
+#         raise NotImplementedError(
+#             "The weather data is at the moment" + " only implemented for Germany"
+#         )
+#
+#     # get the data from the one with the minimal distance
+#     loc_w = wzones.loc[dist.idxmin(), :]
+#     design_T_min = loc_w["Min T"]
+#
+#     # read weather data of related try region
+#     weatherID = "TRY_" + str(loc_w["Climate Zone"])
+#     weather, loc = readTRY(try_num=loc_w["Climate Zone"], year=year)
+#
+#     return weather, design_T_min, weatherID
 
 

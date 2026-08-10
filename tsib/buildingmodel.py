@@ -69,8 +69,10 @@ class Building(object):
         self._ID = None
 
         # initialize time series for the building with relevant weather data
-        self.timeseries = self.cfg['weather'][[key for key in self.cfg['weatherUnits']]]
-
+        #self.timeseries = self.cfg['weather'][[key for key in self.cfg['weatherUnits']]]
+        weather_range = tsib.targetdaterange(self.cfg["weather"],self.cfg["freq"])
+        weather_freq = tsib.resampletoindex(self.cfg["weather"], weather_range)
+        self.timeseries = weather_freq[[key for key in self.cfg['weatherUnits']]]
         # initialize a dictionary to save the units
         self.units = self.cfg["weatherUnits"]
 
@@ -219,7 +221,8 @@ class Building(object):
         self.units.update({'Heat pump':'kW_{th}/kW_{el}', 'Photovoltaic 1':'kW/kWp', 
                             'Photovoltaic 2':'kW/kWp','Solar thermal 1':'kW_{th}/m^2',
                             'Solar thermal 2':'kW_{th}/m^2',})
-    
+
+        profiles = tsib.resampletoindex(profiles, self.timeseries.index)
 
         self.timeseries = self.timeseries.join(profiles)
 
@@ -246,10 +249,10 @@ class Building(object):
             cfg["weather_native"],
             self.IDentries["weather"],
             seeds=seeds,
-            ignore_weather=True,
+            ignore_weather=True, #ToDo prüfen wieso ignore hier true ist
             mean_load=cfg["mean_load"],
             freq=cfg["freq"],
-            target_index=cfg["weather"].index,
+            target_index=self.timeseries.index,
         )
 
         # get short form apartments
@@ -286,6 +289,10 @@ class Building(object):
             ) / 1000
             #        bdg_profiles[i]['occ_active'] = occData['OccActive'] > 0.0
 
+            #add base occupancy to bdg_profiles
+            bdg_profiles[i]["OccActive"] = occData["OccActive"]
+            bdg_profiles[i]["OccNotActive"] = occData["OccNotActive"]
+
             # the share of occupants which is not at home
             bdg_profiles[i]["occ_nothome"] = (
                 n_occs - occData["OccActive"] - occData["OccNotActive"]
@@ -298,8 +305,28 @@ class Building(object):
             else:
                 bdg_profiles[i]["elecLoad"] = cfg["elecLoad"]
 
+            #ToDo swap in OpenDHW here
+            opendhwresult = tsib.getOpenDHWProfiles(
+                cfg["n_persons"],
+                n_app,
+                cfg["buildingType"],
+                cfg["weather"].index[0].year,
+                cfg["freq"],
+                occupancy_series=occData["OccActive"] #+ occData["OccNotActive"],
+            )
+
+            if len(opendhwresult) == len(self.timeseries.index):
+                opendhwresult = opendhwresult.set_axis(self.timeseries.index)
+            else:
+                raise ValueError("Index of OpenDHW is misaligned")
+
+            bdg_profiles[i]["hotWaterLoad"] = opendhwresult["Heat_kW"]
+
             # get hot water load
-            bdg_profiles[i]["hotWaterLoad"] = occData["HotWater"] / 1000
+            #bdg_profiles[i]["hotWaterLoad"] = occData["HotWater"] / 1000
+
+
+
 
             # get fireplace profile
             if cfg["hasFirePlace"]:
@@ -332,7 +359,7 @@ class Building(object):
                 else:
                     # get oven profile depending on activity and outside temperature
                     fireplaceLoad = tsib.simFireplace(
-                        cfg["weather"]["T"],
+                        self.timeseries["T"],
                         occData["OccActive"] / n_occs,
                         n_ovens=n_app,
                         T_oven_on=5,
@@ -346,6 +373,32 @@ class Building(object):
 
         # give building config the first profile
         cfg.update(bdg_profiles[0])
+        #old
+        # hourly_index = cfg["weather"].index
+        #
+        # Q_ig = pd.Series(cfg["Q_ig"], index=self.timeseries.index)
+        # cfg["Q_ig"] = tsib.resampletoindex(Q_ig, hourly_index).values
+        # for key in ("occ_nothome", "occ_sleeping", "elecLoad"):
+        #     cfg[key] = tsib.resampletoindex(cfg[key], hourly_index)
+
+        #data given to the optimizer is averaged so that the hourly resolution contains all the information of Q_ig etc. and not just the one on the full hour mark
+        hourly_index = cfg["weather"].index
+        freq_delta = pd.Timedelta(pd.tseries.frequencies.to_offset(cfg["freq"]))
+
+        # def to_hourly(series):
+        #     if freq_delta <= pd.Timedelta(hours=1):
+        #         return series.resample("h").mean().reindex(hourly_index)
+        #     return tsib.resampletoindex(series, hourly_index)
+
+        def to_hourly(series):
+            if freq_delta <= pd.Timedelta(hours=1):
+                return series.resample("h", origin=hourly_index[0]).mean().reindex(hourly_index)
+            return tsib.resampleToIndex(series, hourly_index)
+
+        Q_ig = pd.Series(cfg["Q_ig"], index=self.timeseries.index)
+        cfg["Q_ig"] = to_hourly(Q_ig).values
+        for key in ("occ_nothome", "occ_sleeping", "elecLoad"):
+            cfg[key] = to_hourly(cfg[key])
 
         # give the other profiles to the configuration file as well
         if cfg["varyoccupancy"] > 1:
@@ -356,14 +409,14 @@ class Building(object):
 
         # TODO: improve the structure of this code to drop this step and dictionary
         profileDict = {'elecLoad': 'Electricity Load', 'hotWaterLoad': 'Hot Water Load',
-                        'fireplaceLoad': 'Fireplace Load'}
+                        'fireplaceLoad': 'Fireplace Load', "OccActive": "Occupancy Home Active","OccNotActive": "Occupancy Home Not Active",'occ_nothome': 'Occupancy Not Home',}
         for key in profileDict:
             # TODO: add other bdg profiles
             if key in bdg_profiles[0]:
                 profiles.loc[:,profileDict[key]] = bdg_profiles[0][key]
 
         self.units.update({'Electricity Load':'kW_{el}', 'Hot Water Load':'kW_{th}',
-                            'Fireplace Load':'kW/kWp'})
+                            'Fireplace Load':'kW/kWp', "Occupancy Home Active": "-","Occupancy Home Not Active": "-","Occupancy Not Home": "-", })
 
         # define relevant time series 
         self._occupancy_profile_names = profiles.columns.values
@@ -413,10 +466,18 @@ class Building(object):
         self._heat_profile_names = ['Heating Load', 'Cooling Load']
 
         self.units.update({'Heating Load':'kW_{th}', 'Cooling Load':'kW_{th}', })
-    
-        # append simulation (TODO improve this call)
-        self.timeseries = self.timeseries.join(self.thermalmodel.detailedResults[self._heat_profile_names])
 
+        # # append simulation (TODO improve this call)
+        #alt
+        # self.timeseries = self.timeseries.join(self.thermalmodel.detailedResults[self._heat_profile_names])
+
+
+        #resmaple SH to freq after hourly optimization
+        heat_load = tsib.resampletoindex(
+            self.thermalmodel.detailedResults[self._heat_profile_names],
+            self.timeseries.index,
+        )
+        self.timeseries = self.timeseries.join(heat_load)
         return self.timeseries[self._heat_profile_names]
 
     def getHeatingSystem(self):

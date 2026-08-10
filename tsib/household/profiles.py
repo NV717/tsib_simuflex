@@ -10,7 +10,7 @@ import os
 import traceback
 import logging
 import warnings
-
+import math
 import multiprocessing as mp
 
 import pandas as pd
@@ -20,6 +20,7 @@ from tsorb.utils.InputData import DataExchangeCsv
 from tsorb.ElectricalLoadProfile import ElectricalLoadProfile
 import tsib.data
 
+import OpenDHW
 
 def simSingleHousehold(residents, year, **elp_kwargs):
     """
@@ -262,6 +263,7 @@ def getHouseholdProfiles(
     _log_str += "With " + str(cores) + " threads, the estimated runtime is " + str(_runtime) + " minutes."
     logging.info(_log_str)
 
+    holiday_doys = OpenDHW.get_holidays(country_code="DE", year=2010)
     # run in parallel all profiles
     if len(not_existing_profiles) > 1:
         new_profiles = simHouseholdsParallel(
@@ -274,6 +276,7 @@ def getHouseholdProfiles(
             resample_mean=mean_load,
             cores=cores,
             freq=freq,
+            holidays=holiday_doys,
         )
     # if single profile just create one profile and avoid multiprocessing
     elif len(not_existing_profiles) > 0:
@@ -284,6 +287,7 @@ def getHouseholdProfiles(
             get_hot_water=True,
             resample_mean=mean_load,
             freq=freq,
+            holidays=holiday_doys,
         )
         new_profiles = [one_profile]
 
@@ -305,7 +309,34 @@ def getHouseholdProfiles(
 
     return profiles
 
+def getOpenDHWProfiles(n_persons, n_apartments, building_type, year, freq,occupancy_series=None, category=4,mean_drawoff_vol_per_day=40,weekend_weekday_factor=1.2,temp_dT=35):
+    s_step = int(pd.Timedelta(pd.tseries.frequencies.to_offset(freq)).total_seconds())
+    initial_day = pd.Timestamp(year=year, month=1, day=1).weekday()
 
+    holidays = OpenDHW.get_holidays(country_code="DE", year=year)
+
+    total = None
+
+    for _ in range(n_apartments):
+        df = OpenDHW.generate_dhw_profile_new(
+            s_step=s_step, categories=category, occupancy=n_persons,
+            building_type=building_type, weekend_weekday_factor=weekend_weekday_factor,
+            holidays=holidays, mean_drawoff_vol_per_day=mean_drawoff_vol_per_day,
+            initial_day=initial_day, occupancy_series=occupancy_series, year=year,
+        )
+
+        #borrowed Methodology from district generator
+        days = np.arange(365)
+        T_mixed = 50 + 3 * np.cos(math.pi * (2 / 365 * days - 2 * 355 / 365))
+        T_cold = 10 + 7 * np.cos(math.pi * (2 / 365 * days - 2 * 225 / 365))
+        dT_day = T_mixed - T_cold
+        steps_per_day = int(24*3600/s_step)
+        dt_repeated = np.repeat(dT_day, steps_per_day)
+
+        df = OpenDHW.compute_heat(df, temp_dT=dt_repeated)
+        total = df if total is None else total.add(df, fill_value=0)
+
+    return total
 
 if __name__ == "__main__":
     
