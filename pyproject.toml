@@ -40,6 +40,7 @@ dependencies = [
     "ipykernel",
     "ipympl>=0.10.0",
     "ipywidgets>=8.1.8",
+    "fastparquet>=2026.5.0",
 ]
 
 [project.urls]

@@ -17,7 +17,7 @@ import tsib
 import tsib.data
 
 
-TOTAL_PROFILE_NUM = 20
+TOTAL_PROFILE_NUM = 5_000_000
 
 
 
@@ -239,13 +239,25 @@ class Building(object):
                     + 'This can take a few minutes.')
 
         # get a number of random seeds to generate the profiles
-        seeds = np.random.RandomState(cfg['state_seed']).randint(
-            0, TOTAL_PROFILE_NUM, size=int(cfg["varyoccupancy"] * cfg["n_apartments"])
+        seeds = np.random.RandomState(cfg['state_seed']).choice(
+            TOTAL_PROFILE_NUM, size=int(cfg["varyoccupancy"] * cfg["n_apartments"]), replace=False
         )
+
+        n_app = int(cfg["n_apartments"])
+        n_slots = int(cfg["varyoccupancy"] * n_app)
+
+        if isinstance(cfg["n_persons"], (list, tuple, np.ndarray)):
+            if len(cfg["n_persons"]) != n_app:
+                raise ValueError(
+                    f'"n_persons" list must have length n_apartments ({n_app}), got {len(cfg["n_persons"])}'
+                )
+            n_persons_list = list(cfg["n_persons"]) * cfg["varyoccupancy"]  # repeat per occupancy variation
+        else:
+            n_persons_list = [int(cfg["n_persons"])] * n_slots
 
         # get the profiles
         hh_profiles = tsib.getHouseholdProfiles(
-            cfg["n_persons"],
+            n_persons_list,
             cfg["weather_native"],
             self.IDentries["weather"],
             seeds=seeds,
@@ -253,12 +265,13 @@ class Building(object):
             mean_load=cfg["mean_load"],
             freq=cfg["freq"],
             target_index=self.timeseries.index,
+            cores=cfg["cores"],
         )
 
         # get short form apartments
         n_app = int(cfg["n_apartments"])
         # abs number of occupants
-        n_occs = int(cfg["n_persons"]) * n_app
+        n_occs = sum(n_persons_list[:n_app])
 
         # get from the household profiles buildingprofiles
         bdg_profiles = {}
@@ -312,7 +325,8 @@ class Building(object):
                 cfg["buildingType"],
                 cfg["weather"].index[0].year,
                 cfg["freq"],
-                occupancy_series=occData["OccActive"] #+ occData["OccNotActive"],
+                occupancy_series=occData["OccActive"], #+ occData["OccNotActive"],
+                seed = cfg["state_seed"],
             )
 
             if len(opendhwresult) == len(self.timeseries.index):
@@ -358,13 +372,14 @@ class Building(object):
                     )
                 else:
                     # get oven profile depending on activity and outside temperature
+                    steps_per_hour = 3600 / int(pd.Timedelta(pd.tseries.frequencies.to_offset(cfg["freq"])).total_seconds())
                     fireplaceLoad = tsib.simFireplace(
                         self.timeseries["T"],
                         occData["OccActive"] / n_occs,
                         n_ovens=n_app,
                         T_oven_on=5,
-                        t_cool=5.0,
-                        fullloadSteps=450,
+                        t_cool=5.0 * steps_per_hour,
+                        fullloadSteps=450 * steps_per_hour,
                         seed=int(seeds[i * n_app]),
                     )
                     fireplaceLoad.to_csv(pot_filename, header=False)

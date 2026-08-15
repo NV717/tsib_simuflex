@@ -12,6 +12,7 @@ import logging
 import warnings
 import math
 import multiprocessing as mp
+import random
 
 import pandas as pd
 import numpy as np
@@ -22,7 +23,7 @@ import tsib.data
 
 import OpenDHW
 
-def simSingleHousehold(residents, year, **elp_kwargs):
+def simSingleHousehold(residents, year, seed=None,**elp_kwargs):
     """
     Function to build an Electrical Profile for the given number of residents
     in the given year and run it for exactly one household.
@@ -39,6 +40,8 @@ def simSingleHousehold(residents, year, **elp_kwargs):
         time_series as numpy array with the total electric energy consumption
         for one year with a minutewise resolution
     """
+    if seed is not None:
+        np.random.seed(seed)
     data_ex_main = DataExchangeCsv()
     elp = ElectricalLoadProfile(data_ex_main, residents, **elp_kwargs)
 
@@ -85,6 +88,7 @@ def simHouseholdsParallel(
     no_of_households,
     singleProfiles=False,
     cores=mp.cpu_count() - 1,
+    seeds = None,
     **elp_kwargs
 ):
     """
@@ -127,14 +131,17 @@ def simHouseholdsParallel(
     else:
         agg_results = None
 
-    masterseed = 7
+    if seeds is None:
+        masterseed = 7
+        seeds = [masterseed + i for i in range(no_of_households)]
     #    ws = [2]*no_of_households  # Test if workerseeds are all set the same all Households will be the same
-    ws = [masterseed + i for i in range(no_of_households)]
-
     if last_loop_calcs > 0:
         no_loops = no_of_full_loops + 1
     else:
         no_loops = no_of_full_loops
+
+    if not isinstance(residents, (list, tuple, np.ndarray)):
+        residents = [residents] * no_of_households
 
     # Loop with parallel calculation for the number of households
     for runs in range(no_loops):
@@ -147,7 +154,7 @@ def simHouseholdsParallel(
         processes = [
             mp.Process(
                 target=_run_household_year,
-                args=(output, residents, year, ws[x + (cores * runs)]),
+                args=(output, residents[x + (cores * runs)], year, seeds[x + (cores * runs)]),
                 kwargs=(elp_kwargs),
             )
             for x in range(no_parallel)
@@ -233,19 +240,24 @@ def getHouseholdProfiles(
     """
     if target_index is None:
         target_index = weather_data.index
+
+    if isinstance(n_persons, (list, tuple, np.ndarray)):
+        if len(n_persons) != len(seeds):
+            raise ValueError(f"n_persons list must match length of seeds ({len(seeds)}), got {len(n_persons)}")
+        persons_by_seed = {seed: int(p) for seed, p in zip(seeds, n_persons)}
+    else:
+        persons_by_seed = {seed: int(n_persons) for seed in seeds}
+
     # get the potential profile names
     filenames = {}
     for seed in seeds:
-        profile_ID = "Profile" + "_occ" + str(int(n_persons)) + "_seed" + str(seed)
+        profile_ID = "Profile" + "_occ" + str(persons_by_seed[seed]) + "_seed" + str(seed)
         if not ignore_weather:
             profile_ID = profile_ID + "_wea" + str(weatherID)
-
         if mean_load:
             profile_ID = profile_ID + "_mean"
         profile_ID = profile_ID + "_freq" + str(freq)
-        filenames[seed] = os.path.join(
-            tsib.data.PATH, "results", "occupantprofiles", profile_ID + ".csv"
-        )
+        filenames[seed] = os.path.join(tsib.data.PATH, "results", "occupantprofiles", profile_ID + ".csv")
 
     # check how many profiles do not exist#
     not_existing_profiles = {}
@@ -264,10 +276,13 @@ def getHouseholdProfiles(
     logging.info(_log_str)
 
     holiday_doys = OpenDHW.get_holidays(country_code="DE", year=2010)
+    missing_seeds = list(not_existing_profiles.keys())
+    missing_persons = [persons_by_seed[s] for s in missing_seeds]
+
     # run in parallel all profiles
     if len(not_existing_profiles) > 1:
         new_profiles = simHouseholdsParallel(
-            int(n_persons),
+            missing_persons,
             2010,
             len(not_existing_profiles),
             singleProfiles=True,
@@ -277,17 +292,20 @@ def getHouseholdProfiles(
             cores=cores,
             freq=freq,
             holidays=holiday_doys,
+            seeds=missing_seeds,
+
         )
     # if single profile just create one profile and avoid multiprocessing
     elif len(not_existing_profiles) > 0:
         one_profile = simSingleHousehold(
-            int(n_persons),
+            missing_persons[0],
             2010,
             weather_data=weather_data,
             get_hot_water=True,
             resample_mean=mean_load,
             freq=freq,
             holidays=holiday_doys,
+            seed=missing_seeds,
         )
         new_profiles = [one_profile]
 
@@ -309,20 +327,28 @@ def getHouseholdProfiles(
 
     return profiles
 
-def getOpenDHWProfiles(n_persons, n_apartments, building_type, year, freq,occupancy_series=None, category=4,mean_drawoff_vol_per_day=40,weekend_weekday_factor=1.2,temp_dT=35):
+def getOpenDHWProfiles(n_persons, n_apartments, building_type, year, freq,occupancy_series=None,seed=None, category=4,mean_drawoff_vol_per_day=40,weekend_weekday_factor=1.2,temp_dT=35):
     s_step = int(pd.Timedelta(pd.tseries.frequencies.to_offset(freq)).total_seconds())
     initial_day = pd.Timestamp(year=year, month=1, day=1).weekday()
 
     holidays = OpenDHW.get_holidays(country_code="DE", year=year)
 
+    if isinstance(n_persons, (list, tuple, np.ndarray)):
+        if len(n_persons) != n_apartments:
+            raise ValueError(f"n_persons  must have length n_apartments ({n_apartments}), got {len(n_persons)}")
+        n_persons_list = list(n_persons)
+    else:
+        n_persons_list = [n_persons] * n_apartments
+
     total = None
 
-    for _ in range(n_apartments):
+    for i in range(n_apartments):
+        apartment_seed = None if seed is None else seed + i
         df = OpenDHW.generate_dhw_profile_new(
-            s_step=s_step, categories=category, occupancy=n_persons,
+            s_step=s_step, categories=category, occupancy=n_persons_list[i],
             building_type=building_type, weekend_weekday_factor=weekend_weekday_factor,
             holidays=holidays, mean_drawoff_vol_per_day=mean_drawoff_vol_per_day,
-            initial_day=initial_day, occupancy_series=occupancy_series, year=year,
+            initial_day=initial_day, occupancy_series=occupancy_series, year=year, seed=apartment_seed,
         )
 
         #borrowed Methodology from district generator

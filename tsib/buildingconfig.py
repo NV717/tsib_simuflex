@@ -100,6 +100,7 @@ KWARG_TYPES = {
     "future": bool,
     "climateRegion": int, #optional override
     "buildingAgeBin": str, # uses agebin instead of infering it from the year
+    "cores": int, #number of cores to use as default
 
 
 
@@ -139,6 +140,7 @@ KWARG_DEFAULTS = {
     "future": False,
     "climateRegion": None, #optional override
     "buildingAgeBin": None,
+    "cores": 1,
 }
 
 
@@ -206,6 +208,15 @@ class BuildingConfiguration(object):
                             kwargs[kwarg] = kwargs[kwarg].item()  
                         else:
                             pass # is valid
+
+                elif kwarg == "n_persons" and isinstance(kwargs[kwarg], (list, tuple, np.ndarray)):
+                    normalized = []
+                    for v in kwargs[kwarg]:
+                        if not isinstance(v, (np.int8, np.int16, np.int32, np.int64, int)):
+                            raise ValueError("n_persons list entries need to be of type int")
+                        normalized.append(int(v))
+                    kwargs[kwarg] = normalized
+
                 elif KWARG_TYPES[kwarg] is int:
                     if not isinstance(
                         kwargs[kwarg], (np.int8, np.int16, np.int32, np.int64, int)
@@ -325,6 +336,8 @@ class BuildingConfiguration(object):
         """
         cfg["longitude"] = kwgs.pop("longitude")  # now optional, default None
         cfg["latitude"] = kwgs.pop("latitude")
+        #pop cores for parallelization
+        cfg["cores"] = kwgs.pop("cores")
 
         # required weatherdata
         weather_units = {"DHI": 'W/m^2', "T": '°C', "DNI": 'W/m^2',"GHI": 'W/m^2'}
@@ -357,6 +370,7 @@ class BuildingConfiguration(object):
             cfg["year_type"] = kwgs.pop("year_type")
             cfg["future"] = kwgs.pop("future")
             cfg["climateRegion"] = kwgs.pop("climateRegion")
+            weather_seed = kwgs.get("seed")
 
             (cfg["weather"],
              cfg["design_T_min"],
@@ -371,6 +385,7 @@ class BuildingConfiguration(object):
                 year_type=cfg["year_type"],
                 future=cfg["future"],
                 climate_region=cfg["climateRegion"],
+                seed = weather_seed,
             )
             self.IDentries["year_type"] = cfg["year_type"]
             self.IDentries["future"] = cfg["future"]
@@ -585,12 +600,18 @@ class BuildingConfiguration(object):
                 query_parameters['a_ref'] = kwgs.pop("a_ref")
             else:
                 # calculate full reference area based on appartments
-                query_parameters['a_ref'] = kwgs.get("a_ref_app") * kwgs["n_apartments"]
+                #query_parameters['a_ref'] = kwgs.get("a_ref_app") * kwgs["n_apartments"]
+                #get must be pop for valid kwg check to mark as used
+                query_parameters['a_ref'] = kwgs.pop("a_ref_app") * kwgs["n_apartments"]
 
             # append distance as query criteria (reverse distance to get the best fit when sorting the values, take min to avoid division by zero)
             a_ref_diff = abs(iwu_bdgs["A_C_Ref"] - query_parameters['a_ref'])
             new_cols["a_ref fits"] = 1 / a_ref_diff.replace(0, 1e-10)
             sort_by.append("a_ref fits")
+
+        # use the real reex archetype when tie not the sysav
+        new_cols["is_ReEx"] = iwu_bdgs["Code_DataType_Building"] == "ReEx"
+        sort_by.append("is_ReEx")
 
         if new_cols:
             iwu_bdgs = pd.concat(
