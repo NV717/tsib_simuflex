@@ -101,6 +101,7 @@ KWARG_TYPES = {
     "climateRegion": int, #optional override
     "buildingAgeBin": str, # uses agebin instead of infering it from the year
     "cores": int, #number of cores to use as default
+    "useCache": bool, #wether result csv are stored
 
 
 
@@ -141,6 +142,7 @@ KWARG_DEFAULTS = {
     "climateRegion": None, #optional override
     "buildingAgeBin": None,
     "cores": 1,
+    "useCache": True,
 }
 
 
@@ -338,7 +340,7 @@ class BuildingConfiguration(object):
         cfg["latitude"] = kwgs.pop("latitude")
         #pop cores for parallelization
         cfg["cores"] = kwgs.pop("cores")
-
+        cfg["useCache"] = kwgs.pop("useCache")
         # required weatherdata
         weather_units = {"DHI": 'W/m^2', "T": '°C', "DNI": 'W/m^2',"GHI": 'W/m^2'}
         cfg["weatherUnits"] = weather_units

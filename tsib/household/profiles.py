@@ -208,6 +208,7 @@ def getHouseholdProfiles(
     cores=mp.cpu_count() - 1,
     freq="h",
     target_index = None,
+    use_cache = True,
 ):
     """
     Gets or creates the relevant occupancy profiles for a building
@@ -249,21 +250,21 @@ def getHouseholdProfiles(
         persons_by_seed = {seed: int(n_persons) for seed in seeds}
 
     # get the potential profile names
-    filenames = {}
-    for seed in seeds:
-        profile_ID = "Profile" + "_occ" + str(persons_by_seed[seed]) + "_seed" + str(seed)
-        if not ignore_weather:
-            profile_ID = profile_ID + "_wea" + str(weatherID)
-        if mean_load:
-            profile_ID = profile_ID + "_mean"
-        profile_ID = profile_ID + "_freq" + str(freq)
-        filenames[seed] = os.path.join(tsib.data.PATH, "results", "occupantprofiles", profile_ID + ".csv")
+    if use_cache:
+        filenames = {}
+        for seed in seeds:
+            profile_ID = "Profile" + "_occ" + str(persons_by_seed[seed]) + "_seed" + str(seed)
+            if not ignore_weather:
+                profile_ID = profile_ID + "_wea" + str(weatherID)
+            if mean_load:
+                profile_ID = profile_ID + "_mean"
+            profile_ID = profile_ID + "_freq" + str(freq)
+            filenames[seed] = os.path.join(tsib.data.PATH, "results", "occupantprofiles", profile_ID + ".csv")
 
     # check how many profiles do not exist#
-    not_existing_profiles = {}
-    for seed in seeds:
-        if not os.path.isfile(filenames[seed]):
-            not_existing_profiles[seed] = filenames[seed]
+        not_existing_profiles = {s: filenames[s] for s in seeds if not os.path.isfile(filenames[s])}
+    else:
+        not_existing_profiles = {s: None for s in seeds}
 
     # info about runtime
     if cores < 1:
@@ -292,7 +293,7 @@ def getHouseholdProfiles(
             cores=cores,
             freq=freq,
             holidays=holiday_doys,
-            seeds=missing_seeds,
+            seeds=missing_seeds[0],
 
         )
     # if single profile just create one profile and avoid multiprocessing
@@ -305,24 +306,27 @@ def getHouseholdProfiles(
             resample_mean=mean_load,
             freq=freq,
             holidays=holiday_doys,
-            seed=missing_seeds,
+            seed=missing_seeds[0],
         )
         new_profiles = [one_profile]
+    else:
+        new_profiles = []
 
-    # write results to csv files
-    for i, seed in enumerate(not_existing_profiles):
-        new_profiles[i].to_csv(not_existing_profiles[seed])
+    fresh_by_seed = dict(zip(missing_seeds, new_profiles))
 
     # load all profiles
     profiles = []
     for seed in seeds:
-        profile = pd.read_csv(filenames[seed], index_col=0).ffill()
-        if len(profile) != len(target_index):
-            raise ValueError(
-                f"freq wrong lengths dont match "
-            )
-        profile.index = target_index
+        if seed in fresh_by_seed:
+            profile = fresh_by_seed[seed].ffill()
+            if use_cache:
+                profile.to_csv(filenames[seed])  # persist for future reuse, as before
+        else:
+            profile = pd.read_csv(filenames[seed], index_col=0).ffill()  # only reached when use_cache=True
 
+        if len(profile) != len(target_index):
+            raise ValueError("freq wrong lengths dont match")
+        profile.index = target_index
         profiles.append(profile)
 
     return profiles

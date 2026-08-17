@@ -266,6 +266,7 @@ class Building(object):
             freq=cfg["freq"],
             target_index=self.timeseries.index,
             cores=cfg["cores"],
+            use_cache=cfg["useCache"],
         )
 
         # get short form apartments
@@ -408,7 +409,7 @@ class Building(object):
         def to_hourly(series):
             if freq_delta <= pd.Timedelta(hours=1):
                 return series.resample("h", origin=hourly_index[0]).mean().reindex(hourly_index)
-            return tsib.resampleToIndex(series, hourly_index)
+            return tsib.resampletoindex(series, hourly_index)
 
         Q_ig = pd.Series(cfg["Q_ig"], index=self.timeseries.index)
         cfg["Q_ig"] = to_hourly(Q_ig).values
