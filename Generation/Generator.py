@@ -12,6 +12,20 @@ import time
 import datetime
 import warnings
 
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+DATA_DIR = PROJECT_ROOT / "tsib" / "data"
+
+EPISCOPE_PATH = DATA_DIR / "episcope" / "episcope.csv"
+
+RESULTS_DIR = PROJECT_ROOT / "Generation" / "results"
+
+MANIFEST_PATH = PROJECT_ROOT / "Generation"/ "manifest.parquet"
+FAIL_LOG = PROJECT_ROOT / "Generation" / "failures.log"
+STARTED_LOG = PROJECT_ROOT / "Generation" / "started.log"
+
 
 def episcope_combis(path: str, country: str = "DE", building_types: list = ["SFH", "MFH", "TH", "AB"])-> dict:
     df = pd.read_csv(path, delimiter=",")
@@ -31,7 +45,6 @@ def episcope_combis(path: str, country: str = "DE", building_types: list = ["SFH
     tzu.columns = ["Type", "Surrounding","AgeBin"]
     res_dict = tzu.to_dict("records")
     return res_dict
-episcope_combis(r"C:\Users\Samuel\FH_Aachen\tsib_simuflex_fork\tsib_simuflex\tsib\data\episcope\episcope.csv")
 
 #https://episcope.eu/building-typology/country/de/  Statistics of the German Building Stock Source[2]
 def gen_flat_count(buildingtype: str, rng: np.random.Generator) -> int:
@@ -109,7 +122,10 @@ def gen_flat_area(occs: list ,rng: np.random.Generator)-> list:
     return areas
 
 
-def manifest(scenario_reps,seed_reps,episcope_path , building_types= ["SFH", "MFH", "TH", "AB"],seed=42, out_path="manifest.parquet", overwrite=False):
+def manifest(scenario_reps,seed_reps,episcope_path , building_types= ["SFH", "MFH", "TH", "AB"],seed=42, out_path=MANIFEST_PATH, overwrite=False):
+    episcope_path = Path(episcope_path)
+    out_path = Path(out_path)
+
     building_combis = episcope_combis(episcope_path, building_types=building_types)
     year_types = ["average", "hot", "cold"]
     futures = [False, True]
@@ -171,25 +187,27 @@ def manifest(scenario_reps,seed_reps,episcope_path , building_types= ["SFH", "MF
     manifest = pd.DataFrame(rows)
     manifest["run_id"] = manifest.index.map(lambda i: f"run_{i:06d}")
     manifest["seed"]= 1000000 + manifest.index
-    if os.path.exists(out_path) and not overwrite:
-        raise FileExistsError()
+    if out_path.exists() and not overwrite:
+        raise FileExistsError(out_path)
     manifest.to_parquet(out_path)
     return manifest
 
 
 # generator
 
-def single_run(row: dict, res_dir: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results"))-> tuple[str, str, tuple[str, str]| None]:
+def single_run(row: dict, res_dir=RESULTS_DIR)-> tuple[str, str, tuple[str, str]| None]:
+    res_dir = Path(res_dir)
+    res_dir.mkdir(parents=True, exist_ok=True)
     warnings.filterwarnings("ignore", message="Maximal heat load exceeded.*")
     t0 = time.time()
     row = row.copy()
     run_id = row["run_id"]
-    with open("started.log", "a") as f:
+    with STARTED_LOG.open("a") as f:
         f.write(f"{run_id}\n")
-    final_path = os.path.join(res_dir, f"{run_id}.h5")
+    final_path = res_dir / f"{run_id}.h5"
     params = row
-    params.pop("run_id")
-    params.pop("scenario_id")
+    params.pop("run_id", None)
+    params.pop("building_id", None)
 
     try:
         cfg = tsib.BuildingConfiguration(params)
@@ -218,7 +236,7 @@ def single_run(row: dict, res_dir: str = os.path.join(os.path.dirname(os.path.ab
         assert (timeseries[["Electricity Load", "Hot Water Load", "Heating Load"]] >= 0).all().all(), "negative Values"
         assert violation < 10.0, f"{violation} kW overload"
 
-        tmp_path = final_path + ".tmp"
+        tmp_path = final_path.with_suffix(final_path.suffix + ".tmp")
 
         with pd.HDFStore(tmp_path, mode="w",complevel=9, complib="blosc:zstd") as store:
             store.put("timeseries", timeseries, format="table")
@@ -229,16 +247,21 @@ def single_run(row: dict, res_dir: str = os.path.join(os.path.dirname(os.path.ab
     except Exception as e:
         return run_id, "failed", (str(e), traceback.format_exc())
 
-def progress_checker(manifest: pd.DataFrame, res_dir: str = r"tsib\data\results\Generation")-> list:
+def progress_checker(manifest: pd.DataFrame, res_dir = RESULTS_DIR)-> list:
+    res_dir = Path(res_dir)
     todo = []
     for _, row in manifest.iterrows():
-        f_path = os.path.join(res_dir, f"{row["run_id"]}.h5")
-        if not os.path.exists(f_path):
+        f_path = res_dir / f"{row['run_id']}.h5"
+        if not f_path.exists():
             todo.append(row.to_dict())
     return todo
 
-def manifest_run(manifest_path = "manifest.parquet",res_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results"), fail_log = "failures.log",max_cores=20):
-    os.makedirs(res_dir, exist_ok=True)
+def manifest_run(manifest_path = MANIFEST_PATH,res_dir = RESULTS_DIR, fail_log = FAIL_LOG,max_cores=20):
+    manifest_path = Path(manifest_path)
+    res_dir = Path(res_dir)
+    fail_log = Path(fail_log)
+    res_dir.mkdir(parents=True, exist_ok=True)
+
     manifest = pd.read_parquet(manifest_path)
     todo = progress_checker(manifest, res_dir)
     print(f"Total:{len(manifest)}, Remain: {len(todo)}, Done: {len(manifest) - len(todo)}")
@@ -252,7 +275,7 @@ def manifest_run(manifest_path = "manifest.parquet",res_dir = os.path.join(os.pa
                     done +=1
                 else:
                     failed +=1
-                    with open(fail_log, "a") as f:
+                    with fail_log.open("a") as f:
                         f.write(f"{run_id}\t{err[0]}\n{err[1]}\n---\n")
                 pbar.set_postfix(done=done, failed=failed)
                 pbar.update(1)
@@ -260,11 +283,8 @@ def manifest_run(manifest_path = "manifest.parquet",res_dir = os.path.join(os.pa
     print(f"Finished: {done} done, {failed} failed ->  {fail_log}")
 
 if __name__ == "__main__":
-    res_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
-    fail_log =  "failures.log"
-    man = manifest(90,4,r"tsib\data\episcope\episcope.csv",building_types=["SFH", "MFH", "TH", "AB"],seed=42, overwrite=True)
-    print(man.shape)
+    man = manifest(1,1,EPISCOPE_PATH,building_types=["SFH"],seed=42, overwrite=True)
     start = time.time()
-    manifest_run("manifest.parquet",res_dir=res_dir, fail_log=fail_log, max_cores=19)
+    manifest_run(MANIFEST_PATH,res_dir=RESULTS_DIR, fail_log=FAIL_LOG, max_cores=19)
     elapsed = time.time() - start
     print(f"Total runtime: {datetime.timedelta(seconds=round(elapsed))}")
