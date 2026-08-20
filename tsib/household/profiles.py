@@ -293,7 +293,7 @@ def getHouseholdProfiles(
             cores=cores,
             freq=freq,
             holidays=holiday_doys,
-            seeds=missing_seeds[0],
+            seeds=missing_seeds,
 
         )
     # if single profile just create one profile and avoid multiprocessing

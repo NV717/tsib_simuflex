@@ -412,6 +412,7 @@ class Building(object):
             return tsib.resampletoindex(series, hourly_index)
 
         Q_ig = pd.Series(cfg["Q_ig"], index=self.timeseries.index)
+        Q_ig_hourly = to_hourly(Q_ig)
         cfg["Q_ig"] = to_hourly(Q_ig).values
         for key in ("occ_nothome", "occ_sleeping", "elecLoad"):
             cfg[key] = to_hourly(cfg[key])
@@ -423,16 +424,22 @@ class Building(object):
         # collect all profiles
         profiles = pd.DataFrame(index = self.timeseries.index)
 
+        profiles.loc[:, 'Internal Heat Gain (hourly)'] = tsib.resampletoindex(Q_ig_hourly, self.timeseries.index).values
+
         # TODO: improve the structure of this code to drop this step and dictionary
         profileDict = {'elecLoad': 'Electricity Load', 'hotWaterLoad': 'Hot Water Load',
-                        'fireplaceLoad': 'Fireplace Load', "OccActive": "Occupancy Home Active","OccNotActive": "Occupancy Home Not Active",'occ_nothome': 'Occupancy Not Home',}
+                        'fireplaceLoad': 'Fireplace Load', "OccActive": "Occupancy Home Active",
+                       "OccNotActive": "Occupancy Home Not Active",'occ_nothome': 'Occupancy Not Home',
+                       'Q_ig': 'Internal Heat Gain',}
         for key in profileDict:
             # TODO: add other bdg profiles
             if key in bdg_profiles[0]:
                 profiles.loc[:,profileDict[key]] = bdg_profiles[0][key]
 
         self.units.update({'Electricity Load':'kW_{el}', 'Hot Water Load':'kW_{th}',
-                            'Fireplace Load':'kW/kWp', "Occupancy Home Active": "-","Occupancy Home Not Active": "-","Occupancy Not Home": "-", })
+                            'Fireplace Load':'kW/kWp', "Occupancy Home Active": "-",
+                           "Occupancy Home Not Active": "-","Occupancy Not Home": "-",
+                           'Internal Heat Gain': 'kW_{th}', 'Internal Heat Gain (hourly)': 'kW_{th}'})
 
         # define relevant time series 
         self._occupancy_profile_names = profiles.columns.values
@@ -494,6 +501,15 @@ class Building(object):
             self.timeseries.index,
         )
         self.timeseries = self.timeseries.join(heat_load)
+
+        self._temp_profile_names = ['T_air']
+        temp_profile = tsib.resampletoindex(
+            self.thermalmodel.detailedResults[self._temp_profile_names],
+            self.timeseries.index,
+        )
+        self.timeseries = self.timeseries.join(temp_profile)
+        self.units.update({'T_air': '°C'})
+
         return self.timeseries[self._heat_profile_names]
 
     def getHeatingSystem(self):

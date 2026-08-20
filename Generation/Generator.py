@@ -109,49 +109,73 @@ def gen_flat_area(occs: list ,rng: np.random.Generator)-> list:
     return areas
 
 
-def manifest(scenario_reps,seed_reps,episcope_path , building_types= ["SFH", "MFH", "TH", "AB"],seed=42):
-    combinations = episcope_combis(episcope_path, building_types=building_types)
-    year_types = ["average"] #"hot", "cold"
-    future = [False] #True
+def manifest(scenario_reps,seed_reps,episcope_path , building_types= ["SFH", "MFH", "TH", "AB"],seed=42, out_path="manifest.parquet", overwrite=False):
+    building_combis = episcope_combis(episcope_path, building_types=building_types)
+    year_types = ["average", "hot", "cold"]
+    futures = [False, True]
+    weather_combis = [(f, y) for f in futures for y in year_types]
     rng = np.random.default_rng(seed)
     rows = []
-    scenario_id = 0
+    building_id = 0
 
-    grid  = itertools.product(combinations, year_types, future)
-    for x,y,z in grid:
-        b_type = x["Type"]
+    def building_type_reps(building_type):
+        return scenario_reps[building_type] if isinstance(scenario_reps, dict) else scenario_reps
 
-        for _ in range(scenario_reps):
-            n_flats = gen_flat_count(buildingtype=b_type, rng=rng)
-            occs = gen_occs(buildingtype=b_type,apartment_count=n_flats, rng=rng)
+    for x in building_combis:
+        building_type = x["Type"]
+        surrounding = x["Surrounding"]
+        buildingAgeBin = x["AgeBin"]
+
+        n_scenarios = building_type_reps(building_type)
+
+        weather_scenario =[weather_combis[i % len(weather_combis)] for i in range(n_scenarios)]
+        rng.shuffle(weather_scenario)
+
+        climate_regions = np.arange(1, 16)
+        base = np.tile(climate_regions,n_scenarios // len(climate_regions))
+        remainder = n_scenarios % len(climate_regions)
+        extra = rng.choice(climate_regions,size=remainder,replace=False)
+        region_scenario = np.concatenate([base, extra])
+        rng.shuffle(region_scenario)
+
+
+        for i in range(n_scenarios):
+            n_flats = gen_flat_count(buildingtype=building_type, rng=rng)
+            occs = gen_occs(buildingtype=building_type, apartment_count=n_flats, rng=rng)
             flat_areas = gen_flat_area(occs=occs,rng=rng)
             total_area = sum(flat_areas)
-            clima_region = int(rng.integers(low=1, high=16))
-
+            clima_region = region_scenario[i]
+            future, year_type = weather_scenario[i]
             for _ in range(seed_reps):
                 rows.append(dict(
                     country = "DE",
-                    buildingType = b_type,
-                    surrounding = x["Surrounding"],
-                    buildingAgeBin = x["AgeBin"],
+                    buildingType = building_type,
+                    surrounding = surrounding,
+                    buildingAgeBin = buildingAgeBin,
                     a_ref = round(total_area,1),
                     n_apartments = n_flats,
-                    year_type = y,
-                    future = z,
+                    year_type = year_type,
+                    future = future,
                     climateRegion = clima_region,
                     n_persons = occs,
                     freq = "1min",
                     hasFirePlace = False,
                     cores = 1,
-                    scenario_id = scenario_id
+                    useCache=False,
+                    building_id = building_id,
+
                 )
-                    )
-            scenario_id += 1
+                 )
+            building_id += 1
+
     manifest = pd.DataFrame(rows)
     manifest["run_id"] = manifest.index.map(lambda i: f"run_{i:06d}")
     manifest["seed"]= 1000000 + manifest.index
-    manifest.to_parquet(os.path.join(os.path.dirname(os.path.abspath(__file__)), "manifest.parquet"))
+    if os.path.exists(out_path) and not overwrite:
+        raise FileExistsError()
+    manifest.to_parquet(out_path)
     return manifest
+
 
 # generator
 
@@ -238,7 +262,7 @@ def manifest_run(manifest_path = "manifest.parquet",res_dir = os.path.join(os.pa
 if __name__ == "__main__":
     res_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
     fail_log =  "failures.log"
-    man = manifest(1,4,r"C:\Users\Samuel\FH_Aachen\tsib_simuflex_fork\tsib_simuflex\tsib\data\episcope\episcope.csv",building_types=["SFH"],seed=42)
+    man = manifest(90,4,r"tsib\data\episcope\episcope.csv",building_types=["SFH", "MFH", "TH", "AB"],seed=42, overwrite=True)
     print(man.shape)
     start = time.time()
     manifest_run("manifest.parquet",res_dir=res_dir, fail_log=fail_log, max_cores=19)
