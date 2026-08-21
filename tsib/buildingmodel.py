@@ -17,7 +17,7 @@ import tsib
 import tsib.data
 
 
-TOTAL_PROFILE_NUM = 5_000_000
+TOTAL_PROFILE_NUM = 10_000_000
 
 
 
@@ -242,6 +242,8 @@ class Building(object):
         seeds = np.random.RandomState(cfg['state_seed']).choice(
             TOTAL_PROFILE_NUM, size=int(cfg["varyoccupancy"] * cfg["n_apartments"]), replace=False
         )
+        #stash internal seed for external retrievla
+        cfg["apartment_seeds"] = seeds.tolist()
 
         n_app = int(cfg["n_apartments"])
         n_slots = int(cfg["varyoccupancy"] * n_app)

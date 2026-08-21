@@ -1380,6 +1380,8 @@ class Building5R1C(object):
             print(self.opt_results.termination_condition)
         else:
             self.opt_results = optprob.solve(M, tee=tee)
+            print("Variables:", M.nvariables())
+            print("Constraints:", M.nconstraints())
 
         if not M.bMaxLoadViolation.value is None:
             if M.bMaxLoadViolation.value > 0.0:
