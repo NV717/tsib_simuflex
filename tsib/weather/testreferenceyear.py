@@ -16,6 +16,8 @@ import pandas as pd
 import tsib.data
 import tsib
 
+import calendar
+
 # ignore pv lib warnings
 np.seterr(divide="ignore")
 np.seterr(invalid="ignore")
@@ -39,10 +41,11 @@ def calcGHI(timeSeries, longitude, latitude):
     return timeSeries
 
 
-def readTMY(filepath=os.path.join("TMY", "Germany DEU Koln (INTL).csv")):
+def readTMY(filepath=os.path.join("TMY", "Germany DEU Koln (INTL).csv"),year=2010):
     """
     Reads a typical meteorological year file and gets the GHI, DHI and DNI from it.
     """
+    year = _check_year(year)
     # get data
     data = pd.read_csv(
         os.path.join(tsib.data.PATH, "weatherdata", filepath),
@@ -50,7 +53,7 @@ def readTMY(filepath=os.path.join("TMY", "Germany DEU Koln (INTL).csv")):
         sep=",",
     )
     data.index = pd.date_range(
-        "2010-01-01 00:30:00", periods=8760, freq="h", tz="Europe/Berlin"
+        f"{year}-01-01 00:30:00", periods=8760, freq="h", tz="Europe/Berlin"
     )
     data = data.rename(
         columns={"Beam": "DNI", "Diffuse": "DHI", "Tdry": "T", "Wspd": "WS"}
@@ -91,7 +94,16 @@ def _pick_station_file(region, year_type, future, seed):
     chosen = np.random.RandomState(seed).choice(candidates)
     return os.path.join(folder, chosen[:-4])
 
-def readTRYnew(filepath, latitude, longitude):
+def _check_year(year):
+   # TRY/TMY data has exactly 8760 rows, so only non-leap years fit
+    if calendar.isleap(int(year)):
+        raise ValueError(f"year={year} is a leap year; the weather data has 8760 hourly rows. Use a non-leap year.")
+    return int(year)
+
+
+
+def readTRYnew(filepath, latitude, longitude, year=2010):
+    year = _check_year(year)
     data_start = _find_data_start(filepath + ".dat")
     header_row = data_start - 1
     data = pd.read_csv(
@@ -99,7 +111,7 @@ def readTRYnew(filepath, latitude, longitude):
         skiprows=[i for i in range(header_row)] + [data_start],
     )
     data.index = pd.date_range(
-        "2010-01-01 00:30:00", periods=8760, freq="h", tz="Europe/Berlin"
+        f"{year}-01-01 00:30:00", periods=8760, freq="h", tz="Europe/Berlin"
     )
     data["GHI"] = data["D"] + data["B"]
     data = data.rename(columns={"D": "DHI", "t": "T", "WG": "WS"})
@@ -107,55 +119,55 @@ def readTRYnew(filepath, latitude, longitude):
     return data
 
 
-def readTRY(try_num=4, year=2010):
-    """
-    Reads a test refence year file and gets the GHI, DHI and DNI from it.
-    
-    Parameters
-    -------
-    try_num: int (default: 4)
-        The region number of the test reference year.
-    year: int (default: 2010)
-        The year. Only data for 2010 and 2030 available
-    """
-    # get the correct file path
-    filepath = os.path.join(
-        tsib.data.PATH,
-        "weatherdata",
-        "TRY",
-        "TRY" + str(year) + "_" + str(try_num).zfill(2) + "_Jahr",
-    )
-
-    # get the geoposition
-    with open(filepath + ".dat", encoding="utf-8") as fp:
-        lines = fp.readlines()
-        location_name = lines[1][9:-18].encode("utf-8").rstrip()
-        lat = float(lines[2][6:8]) + float(lines[2][9:11]) / 60.0
-        lon = float(lines[2][21:23]) + float(lines[2][24:26]) / 60.0
-    location = {"name": location_name, "latitude": lat, "longitude": lon}
-
-    # check if time series data already exists as .csv with DNI
-    if os.path.isfile(filepath + ".csv"):
-        data = pd.read_csv(filepath + ".csv", index_col=0, parse_dates=True)
-        data.index = pd.to_datetime(data.index, utc=True).tz_convert("Europe/Berlin")
-    # else read from .dat and calculate DNI etc.
-    else:
-        # get data
-        data = pd.read_csv(
-            filepath + ".dat", sep=r"\s+", skiprows=([i for i in range(0, 36)] + [37])
-        )
-        data.index = pd.date_range(
-            "2010-01-01 00:30:00", periods=8760, freq="h", tz="Europe/Berlin" # 2010 hardcoded as generic placeholder year since the actual year is unimportant
-        )
-        data["GHI"] = data["D"] + data["B"]
-        data = data.rename(columns={"D": "DHI", "t": "T", "WG": "WS"})
-
-        # calculate direct normal
-        data["DNI"] = calculateDNI(data["B"], lon, lat)
-
-        # save as .csv
-        data.to_csv(filepath + ".csv")
-    return data, location
+# def readTRY(try_num=4, year=2010):
+#     """
+#     Reads a test refence year file and gets the GHI, DHI and DNI from it.
+#
+#     Parameters
+#     -------
+#     try_num: int (default: 4)
+#         The region number of the test reference year.
+#     year: int (default: 2010)
+#         The year. Only data for 2010 and 2030 available
+#     """
+#     # get the correct file path
+#     filepath = os.path.join(
+#         tsib.data.PATH,
+#         "weatherdata",
+#         "TRY",
+#         "TRY" + str(year) + "_" + str(try_num).zfill(2) + "_Jahr",
+#     )
+#
+#     # get the geoposition
+#     with open(filepath + ".dat", encoding="utf-8") as fp:
+#         lines = fp.readlines()
+#         location_name = lines[1][9:-18].encode("utf-8").rstrip()
+#         lat = float(lines[2][6:8]) + float(lines[2][9:11]) / 60.0
+#         lon = float(lines[2][21:23]) + float(lines[2][24:26]) / 60.0
+#     location = {"name": location_name, "latitude": lat, "longitude": lon}
+#
+#     # check if time series data already exists as .csv with DNI
+#     if os.path.isfile(filepath + ".csv"):
+#         data = pd.read_csv(filepath + ".csv", index_col=0, parse_dates=True)
+#         data.index = pd.to_datetime(data.index, utc=True).tz_convert("Europe/Berlin")
+#     # else read from .dat and calculate DNI etc.
+#     else:
+#         # get data
+#         data = pd.read_csv(
+#             filepath + ".dat", sep=r"\s+", skiprows=([i for i in range(0, 36)] + [37])
+#         )
+#         data.index = pd.date_range(
+#             "2010-01-01 00:30:00", periods=8760, freq="h", tz="Europe/Berlin" # 2010 hardcoded as generic placeholder year since the actual year is unimportant
+#         )
+#         data["GHI"] = data["D"] + data["B"]
+#         data = data.rename(columns={"D": "DHI", "t": "T", "WG": "WS"})
+#
+#         # calculate direct normal
+#         data["DNI"] = calculateDNI(data["B"], lon, lat)
+#
+#         # save as .csv
+#         data.to_csv(filepath + ".csv")
+#     return data, location
 
 def targetdaterange(data, freq):
     default_delt = data.index[1] - data.index[0]
@@ -269,7 +281,7 @@ def TRY2TMY(trydata):
     )
 
 def getISO12831weather(longitude=None, latitude=None, year_type="average",
-                        future=False, climate_region=None, seed=None):
+                        future=False, climate_region=None, seed=None, year=2010):
     wzones = pd.read_csv(
         os.path.join(tsib.data.PATH, "weatherdata", "ISO12831", "T_zones_Ger_final.csv"),
         index_col=0, encoding="ISO-8859-1",
@@ -290,7 +302,7 @@ def getISO12831weather(longitude=None, latitude=None, year_type="average",
 
     filepath = _pick_station_file(climate_region, year_type, future, seed)
     station_lat, station_lon = _parse_latlon_from_file(os.path.basename(filepath))
-    weather = readTRYnew(filepath, station_lat, station_lon)
+    weather = readTRYnew(filepath, station_lat, station_lon, year=year)
     if latitude is None:
         latitude, longitude = station_lat, station_lon
     weatherID = f"TRY{2045 if future else 2015}_{climate_region}_{year_type}_{os.path.basename(filepath)}"

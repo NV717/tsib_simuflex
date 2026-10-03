@@ -102,6 +102,7 @@ KWARG_TYPES = {
     "buildingAgeBin": str, # uses agebin instead of infering it from the year
     "cores": int, #number of cores to use as default
     "useCache": bool, #wether result csv are stored
+    "year": int,  # calendar year used for weather index, holidays and weekdays (non-leap)
 
 
 
@@ -142,7 +143,8 @@ KWARG_DEFAULTS = {
     "climateRegion": None, #optional override
     "buildingAgeBin": None,
     "cores": 1,
-    "useCache": True,
+    "useCache": False,
+    "year": 2010,
 }
 
 
@@ -341,6 +343,7 @@ class BuildingConfiguration(object):
         #pop cores for parallelization
         cfg["cores"] = kwgs.pop("cores")
         cfg["useCache"] = kwgs.pop("useCache")
+        cfg["year"] = kwgs.pop("year")
         # required weatherdata
         weather_units = {"DHI": 'W/m^2', "T": '°C', "DNI": 'W/m^2',"GHI": 'W/m^2'}
         cfg["weatherUnits"] = weather_units
@@ -388,10 +391,15 @@ class BuildingConfiguration(object):
                 future=cfg["future"],
                 climate_region=cfg["climateRegion"],
                 seed = weather_seed,
+                year=cfg["year"],
             )
             self.IDentries["year_type"] = cfg["year_type"]
             self.IDentries["future"] = cfg["future"]
             self.IDentries["climateRegion"] = cfg["climateRegion"]
+
+
+        if cfg["year"] != KWARG_DEFAULTS["year"]:
+            self.IDentries["year"] = cfg["year"]
 
         # keep normal res weather for tsorb calc
         cfg["weather_native"] = cfg["weather"]

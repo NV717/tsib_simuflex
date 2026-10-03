@@ -1,6 +1,6 @@
 from .buildingmodel import Building
 from .buildingconfig import BuildingConfiguration 
-from .weather.testreferenceyear import readTRY, readTRYnew, TRY2TMY, getISO12831weather, targetdaterange, resampletoindex
+from .weather.testreferenceyear import readTRYnew, TRY2TMY, getISO12831weather, targetdaterange, resampletoindex
 from .renewables.fireplace import simFireplace
 from .renewables.solar import simPhotovoltaic, simSolarThermal
 from .renewables.heatpump import simHeatpump

@@ -238,6 +238,7 @@ class Building(object):
         logging.info('Occupancy profiles are simulated. ' 
                     + 'This can take a few minutes.')
 
+        profile_year = int(cfg["weather_native"].index[0].year)
         # get a number of random seeds to generate the profiles
         seeds = np.random.RandomState(cfg['state_seed']).choice(
             TOTAL_PROFILE_NUM, size=int(cfg["varyoccupancy"] * cfg["n_apartments"]), replace=False
@@ -269,6 +270,7 @@ class Building(object):
             target_index=self.timeseries.index,
             cores=cfg["cores"],
             use_cache=cfg["useCache"],
+            year=profile_year
         )
 
         # get short form apartments
@@ -326,7 +328,7 @@ class Building(object):
                 cfg["n_persons"],
                 n_app,
                 cfg["buildingType"],
-                cfg["weather"].index[0].year,
+                profile_year,
                 cfg["freq"],
                 occupancy_series=occData["OccActive"], #+ occData["OccNotActive"],
                 seed = cfg["state_seed"],

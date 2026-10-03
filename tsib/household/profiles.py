@@ -209,6 +209,7 @@ def getHouseholdProfiles(
     freq="h",
     target_index = None,
     use_cache = True,
+    year = None,
 ):
     """
     Gets or creates the relevant occupancy profiles for a building
@@ -242,6 +243,9 @@ def getHouseholdProfiles(
     if target_index is None:
         target_index = weather_data.index
 
+    if year is None:
+        year = int(weather_data.index[0].year)
+
     if isinstance(n_persons, (list, tuple, np.ndarray)):
         if len(n_persons) != len(seeds):
             raise ValueError(f"n_persons list must match length of seeds ({len(seeds)}), got {len(n_persons)}")
@@ -254,6 +258,7 @@ def getHouseholdProfiles(
         filenames = {}
         for seed in seeds:
             profile_ID = "Profile" + "_occ" + str(persons_by_seed[seed]) + "_seed" + str(seed)
+            profile_ID = profile_ID + "_yr" + str(year)
             if not ignore_weather:
                 profile_ID = profile_ID + "_wea" + str(weatherID)
             if mean_load:
@@ -276,7 +281,7 @@ def getHouseholdProfiles(
     _log_str += "With " + str(cores) + " threads, the estimated runtime is " + str(_runtime) + " minutes."
     logging.info(_log_str)
 
-    holiday_doys = OpenDHW.get_holidays(country_code="DE", year=2010)
+    holiday_doys = OpenDHW.get_holidays(country_code="DE", year=year)
     missing_seeds = list(not_existing_profiles.keys())
     missing_persons = [persons_by_seed[s] for s in missing_seeds]
 
@@ -284,7 +289,7 @@ def getHouseholdProfiles(
     if len(not_existing_profiles) > 1:
         new_profiles = simHouseholdsParallel(
             missing_persons,
-            2010,
+            year,
             len(not_existing_profiles),
             singleProfiles=True,
             weather_data=weather_data,
@@ -300,7 +305,7 @@ def getHouseholdProfiles(
     elif len(not_existing_profiles) > 0:
         one_profile = simSingleHousehold(
             missing_persons[0],
-            2010,
+            year,
             weather_data=weather_data,
             get_hot_water=True,
             resample_mean=mean_load,
