@@ -264,7 +264,7 @@ class Building(object):
             cfg["weather_native"],
             self.IDentries["weather"],
             seeds=seeds,
-            ignore_weather=True, #ToDo prüfen wieso ignore hier true ist
+            ignore_weather=True, #ToDo prüfen wieso ignore hier true ist => definiert nur das wetter nicht in dem namen für caching verwendet wird
             mean_load=cfg["mean_load"],
             freq=cfg["freq"],
             target_index=self.timeseries.index,
@@ -272,6 +272,8 @@ class Building(object):
             use_cache=cfg["useCache"],
             year=profile_year
         )
+        cfg["appliances"] = [p.attrs.get("appliances") for p in hh_profiles]
+        cfg["day_types"] = hh_profiles[0].attrs.get("day_types")
 
         # get short form apartments
         n_app = int(cfg["n_apartments"])

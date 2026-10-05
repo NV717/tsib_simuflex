@@ -46,6 +46,8 @@ def simSingleHousehold(residents, year, seed=None,**elp_kwargs):
     elp = ElectricalLoadProfile(data_ex_main, residents, **elp_kwargs)
 
     result = elp.get_rescheduled_profiles(year)
+    result.attrs["appliances"] = list(elp.owned_appliances)
+    result.attrs["day_types"] = list(elp.day_types)
     return result
 
 
@@ -74,6 +76,8 @@ def _run_household_year(queue, residents, year, work_seed, **elp_kwargs):
         data_ex_main = DataExchangeCsv()
         elp = ElectricalLoadProfile(data_ex_main, residents, **elp_kwargs)
         result = elp.get_rescheduled_profiles(year)
+        result.attrs["appliances"] = list(elp.owned_appliances)
+        result.attrs["day_types"] = list(elp.day_types)
         queue.put((None, result))
         return
     except Exception as e:
@@ -323,11 +327,16 @@ def getHouseholdProfiles(
     profiles = []
     for seed in seeds:
         if seed in fresh_by_seed:
-            profile = fresh_by_seed[seed].ffill()
+            fresh = fresh_by_seed[seed]
+            profile = fresh.ffill()
+            profile.attrs["appliances"] = fresh.attrs.get("appliances")
+            profile.attrs["day_types"] = fresh.attrs.get("day_types")
             if use_cache:
                 profile.to_csv(filenames[seed])  # persist for future reuse, as before
         else:
             profile = pd.read_csv(filenames[seed], index_col=0).ffill()  # only reached when use_cache=True
+            profile.attrs["appliances"] = None  # not stored in the cache CSV
+            profile.attrs["day_types"] = None
 
         if len(profile) != len(target_index):
             raise ValueError("freq wrong lengths dont match")
@@ -336,7 +345,7 @@ def getHouseholdProfiles(
 
     return profiles
 
-def getOpenDHWProfiles(n_persons, n_apartments, building_type, year, freq,occupancy_series=None,seed=None, category=4,mean_drawoff_vol_per_day=40,weekend_weekday_factor=1.2,temp_dT=35):
+def getOpenDHWProfiles(n_persons, n_apartments, building_type, year, freq,occupancy_series=None,seed=None, category=4,mean_drawoff_vol_per_day=40,weekend_weekday_factor=1.2):
     s_step = int(pd.Timedelta(pd.tseries.frequencies.to_offset(freq)).total_seconds())
     initial_day = pd.Timestamp(year=year, month=1, day=1).weekday()
 
@@ -359,7 +368,7 @@ def getOpenDHWProfiles(n_persons, n_apartments, building_type, year, freq,occupa
             holidays=holidays, mean_drawoff_vol_per_day=mean_drawoff_vol_per_day,
             initial_day=initial_day, occupancy_series=occupancy_series, year=year, seed=apartment_seed,
         )
-
+        # ToDO chekc what tempdt was intendet for
         #borrowed Methodology from district generator
         days = np.arange(365)
         T_mixed = 50 + 3 * np.cos(math.pi * (2 / 365 * days - 2 * 355 / 365))

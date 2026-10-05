@@ -11,6 +11,7 @@ import tsib
 import time
 import datetime
 import warnings
+import calendar
 
 from pathlib import Path
 
@@ -125,7 +126,24 @@ def gen_flat_area(occs: list ,rng: np.random.Generator)-> list:
     return areas
 
 
-def manifest(scenario_reps,seed_reps,episcope_path , building_types = None,seed=42, out_path=MANIFEST_PATH, overwrite=False):
+def non_leap_years(n, start=2010):
+    years, y = [], start
+    while len(years) < n:
+        if not calendar.isleap(y):
+            years.append(y)
+        y += 1
+    return years
+
+def manifest(scenario_reps,seed_reps,episcope_path , building_types = None,seed=42, out_path=MANIFEST_PATH, overwrite=False, years=None):
+    if years is None:
+        years = non_leap_years(seed_reps)
+
+    years = [int(y) for y in years]
+    if len(years) < seed_reps or len(set(years[:seed_reps])) != seed_reps:
+        raise ValueError(f"Need at least {seed_reps} distinct years, got {years}")
+    if any(calendar.isleap(y) for y in years[:seed_reps]):
+        raise ValueError("years must be non-leap (weather data has 8760 rows)")
+
     if building_types is None:
         building_types = ["SFH", "MFH", "TH", "AB"]
     episcope_path = Path(episcope_path)
@@ -170,7 +188,7 @@ def manifest(scenario_reps,seed_reps,episcope_path , building_types = None,seed=
             total_area = sum(flat_areas)
             clima_region = region_scenario[i]
             future, year_type = weather_scenario[i]
-            for _ in range(seed_reps):
+            for rep in range(seed_reps):
                 rows.append(dict(
                     country = "DE",
                     buildingType = building_type,
@@ -193,6 +211,8 @@ def manifest(scenario_reps,seed_reps,episcope_path , building_types = None,seed=
                     comfortT_ub = 24.0,
                     cores = 1,
                     useCache=False,
+                    year=years[rep],
+
                     building_id = building_id,
 
                 )
@@ -301,6 +321,13 @@ def validate_manifest(manifest: pd.DataFrame, seed_reps: int) -> None:
     assert (manifest["cores"] >= 1).all(), (
         "cores contains values below 1."
     )
+
+
+    assert not manifest["year"].map(calendar.isleap).any(), ("year contains leap years.")
+
+    years_per_building = manifest.groupby("building_id")["year"].nunique()
+
+    assert (years_per_building == seed_reps).all(), ("Each building must use a different year in every seed repetition.")
 
     type_rules = {
         "SFH": (1, 1),
@@ -492,16 +519,27 @@ def single_run(row: dict, res_dir=RESULTS_DIR)-> tuple[str, str, tuple[str, str]
             "resolved_longitude": bdg.cfg.get("longitude"),
             "state_seed": bdg.cfg.get("state_seed"),
             "apartment_seeds": bdg.cfg.get("apartment_seeds"),
+            "appliances": bdg.cfg.get("appliances"),
             "maxLoadViolation_kW": violation,
             "runtime_seconds": time.time() - t0,
+            "resolved_year": int(bdg.timeseries.index[0].year),
         }
 
         full_params = {**params, **resolved}
         full_params["n_persons"] = json.dumps(full_params["n_persons"])
         full_params["apartment_seeds"] = json.dumps(full_params["apartment_seeds"])
+        full_params["appliances"] = json.dumps(full_params["appliances"])
 
 
         timeseries = bdg.timeseries[["T", "Occupancy Home Active", "Occupancy Home Not Active", "Electricity Load", "Hot Water Load", "Heating Load",]].astype("float32")
+
+        day_types = bdg.cfg.get("day_types")
+
+        if day_types is None:
+            raise ValueError("day_types missing (profiles came from cache?)")
+          # one entry per calendar day -> expand to every timestep via dayofyear
+        is_offday = (np.asarray(day_types) == "we")[timeseries.index.dayofyear - 1]
+        timeseries["Off Day"] = is_offday.astype("int8")
 
         if timeseries.isna().any().any():
             raise ValueError("NaN in timeseries")
