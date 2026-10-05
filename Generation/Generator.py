@@ -255,6 +255,7 @@ def validate_manifest(manifest: pd.DataFrame, seed_reps: int) -> None:
         "occControl",
         "comfortT_lb",
         "comfortT_ub",
+        "year",
     }
 
     missing_columns = required_columns - set(manifest.columns)
@@ -620,7 +621,7 @@ def manifest_run(manifest_path = MANIFEST_PATH,res_dir = RESULTS_DIR, fail_log =
     print(f"Finished: {done} done, {failed} failed ->  {fail_log}")
 
 if __name__ == "__main__":
-    man = manifest(1,1,EPISCOPE_PATH,building_types=["SFH", "MFH", "TH", "AB"],seed=42, overwrite=True)
+    man = manifest(1,1,EPISCOPE_PATH,building_types=["SFH," "MFH", "TH", "AB"],seed=42, overwrite=True, years=[2025]) #, "MFH", "TH", "AB"
     validate_manifest(man, seed_reps=1)
     start = time.time()
     manifest_run(MANIFEST_PATH,res_dir=RESULTS_DIR, fail_log=FAIL_LOG, max_cores=19)

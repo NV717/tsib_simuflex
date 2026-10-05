@@ -325,6 +325,9 @@ class Building(object):
             else:
                 bdg_profiles[i]["elecLoad"] = cfg["elecLoad"]
 
+            apt_occ = [hh_profiles[i * n_app + a]["OccActive"] for a in range(n_app)] #only active occupancy
+
+
             #ToDo swap in OpenDHW here
             opendhwresult = tsib.getOpenDHWProfiles(
                 cfg["n_persons"],
@@ -332,8 +335,8 @@ class Building(object):
                 cfg["buildingType"],
                 profile_year,
                 cfg["freq"],
-                occupancy_series=occData["OccActive"], #+ occData["OccNotActive"],
-                seed = cfg["state_seed"],
+                occupancy_series=apt_occ,
+                seeds = seeds[i * n_app:(i + 1) * n_app], #war seed = cfg["state_seed"]
             )
 
             if len(opendhwresult) == len(self.timeseries.index):
@@ -414,7 +417,9 @@ class Building(object):
 
         def to_hourly(series):
             if freq_delta <= pd.Timedelta(hours=1):
-                return series.resample("h", origin=hourly_index[0]).mean().reindex(hourly_index)
+                hourly = series.resample("h").mean()
+                hourly.index = hourly.index + pd.Timedelta(minutes=30)
+                return series.reindex(hourly_index)
             return tsib.resampletoindex(series, hourly_index)
 
         Q_ig = pd.Series(cfg["Q_ig"], index=self.timeseries.index)

@@ -345,9 +345,12 @@ def getHouseholdProfiles(
 
     return profiles
 
-def getOpenDHWProfiles(n_persons, n_apartments, building_type, year, freq,occupancy_series=None,seed=None, category=4,mean_drawoff_vol_per_day=40,weekend_weekday_factor=1.2):
+def getOpenDHWProfiles(n_persons, n_apartments, building_type, year, freq,occupancy_series=None,seeds=None, category=4,mean_drawoff_vol_per_day=40,weekend_weekday_factor=1.2):
     s_step = int(pd.Timedelta(pd.tseries.frequencies.to_offset(freq)).total_seconds())
     initial_day = pd.Timestamp(year=year, month=1, day=1).weekday()
+
+    if seeds is not None and len(seeds) != n_apartments:
+        raise ValueError("seeds must have length n_apartments")
 
     holidays = OpenDHW.get_holidays(country_code="DE", year=year)
 
@@ -359,14 +362,23 @@ def getOpenDHWProfiles(n_persons, n_apartments, building_type, year, freq,occupa
         n_persons_list = [n_persons] * n_apartments
 
     total = None
+    #use the actual occupancy series per apartemnt not the aggreagted one per building
+    if occupancy_series is None:
+        occ_list = [None] * n_apartments
+    elif isinstance(occupancy_series, (list, tuple)):
+        if len(occupancy_series) != n_apartments:
+            raise ValueError("occupancy_series list must have length n_apartments")
+        occ_list = list(occupancy_series)
+    else:
+        occ_list = [occupancy_series] * n_apartments  # old behaviour
 
     for i in range(n_apartments):
-        apartment_seed = None if seed is None else seed + i
+        apartment_seed = None if seeds is None else int(seeds[i])
         df = OpenDHW.generate_dhw_profile_new(
             s_step=s_step, categories=category, occupancy=n_persons_list[i],
             building_type=building_type, weekend_weekday_factor=weekend_weekday_factor,
             holidays=holidays, mean_drawoff_vol_per_day=mean_drawoff_vol_per_day,
-            initial_day=initial_day, occupancy_series=occupancy_series, year=year, seed=apartment_seed,
+            initial_day=initial_day, occupancy_series=occ_list[i], year=year, seed=apartment_seed,
         )
         # ToDO chekc what tempdt was intendet for
         #borrowed Methodology from district generator
