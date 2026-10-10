@@ -27,6 +27,7 @@ MANIFEST_PATH = PROJECT_ROOT / "Generation"/ "manifest.parquet"
 FAIL_LOG = PROJECT_ROOT / "Generation" / "failures.log"
 STARTED_LOG = PROJECT_ROOT / "Generation" / "started.log"
 
+SFH_MAX_AREA = 280.0 #cap for SFH area since there is a weird tabula archetype in the episcope csv with 2 flats
 
 def episcope_combis(path: str, country: str = "DE", building_types = None)-> dict:
     if building_types is None:
@@ -45,17 +46,24 @@ def episcope_combis(path: str, country: str = "DE", building_types = None)-> dic
     test = df[["Code_BuildingSizeClass", "Code_ConstructionYearClass", "Connections"]].drop_duplicates()
     #print(test.index)
     tzu = df.loc[test.index]
-    tzu = tzu[["Code_BuildingSizeClass","Connections", "Code_ConstructionYearClass"]]
-    tzu.columns = ["Type", "Surrounding","AgeBin"]
+    tzu = tzu[["Code_BuildingSizeClass","Connections", "Code_ConstructionYearClass", "A_C_Ref","n_Apartment","q_h_nd"]]
+    tzu.columns = ["Type", "Surrounding","AgeBin", "A0", "n0", "SH_spec"]
     res_dict = tzu.to_dict("records")
     return res_dict
+
+def gen_area_ratio(rng, sigma=0.2, lo=0.8, hi=1.3):
+    while True:
+        r = rng.lognormal(0.0, sigma)
+        if lo <= r <= hi:
+            return r
+
 
 #https://episcope.eu/building-typology/country/de/  Statistics of the German Building Stock Source[2]
 def gen_flat_count(buildingtype: str, rng: np.random.Generator) -> int:
     if buildingtype == "SFH":
         return 1
     elif buildingtype == "TH":
-        return int(rng.integers(low=1, high=3))
+        return 1
     elif buildingtype == "MFH":
         return int(rng.integers(low=3, high=13)) #exclusive
     elif buildingtype == "AB":
@@ -93,6 +101,7 @@ def gen_occs(buildingtype: str, apartment_count: int, rng: np.random.Generator) 
 
     return num_occs
 
+#only for AB and MFH, SFH and TH are based on the episcope ranges
 #https://www.destatis.de/DE/Themen/Gesellschaft-Umwelt/Wohnen/Tabellen/tabelle-wo4-wohnflaeche.html
 def gen_flat_area(occs: list ,rng: np.random.Generator)-> list:
     area_occ_probs = {
@@ -184,8 +193,16 @@ def manifest(scenario_reps,seed_reps,episcope_path , building_types = None,seed=
         for i in range(n_scenarios):
             n_flats = gen_flat_count(buildingtype=building_type, rng=rng)
             occs = gen_occs(buildingtype=building_type, apartment_count=n_flats, rng=rng)
-            flat_areas = gen_flat_area(occs=occs,rng=rng)
-            total_area = sum(flat_areas)
+            if building_type in ("SFH"):
+                a0 = x["A0"]
+                hi = min(1.3, SFH_MAX_AREA / a0)
+                assert hi > 0.8, f"SFH archetype {a0} m² cannot satisfy the cap"
+                total_area = gen_area_ratio(rng, hi=hi) * a0
+            elif building_type in ("TH"):
+                total_area = gen_area_ratio(rng) * x["A0"]
+            else:
+                flat_areas = gen_flat_area(occs=occs,rng=rng)
+                total_area = sum(flat_areas)
             clima_region = region_scenario[i]
             future, year_type = weather_scenario[i]
             for rep in range(seed_reps):
@@ -194,7 +211,8 @@ def manifest(scenario_reps,seed_reps,episcope_path , building_types = None,seed=
                     buildingType = building_type,
                     surrounding = surrounding,
                     buildingAgeBin = buildingAgeBin,
-                    a_ref = round(total_area,1),
+                    a_ref = round(total_area,3),
+                    a0=x["A0"],
                     n_apartments = n_flats,
                     year_type = year_type,
                     future = future,
@@ -256,6 +274,7 @@ def validate_manifest(manifest: pd.DataFrame, seed_reps: int) -> None:
         "comfortT_lb",
         "comfortT_ub",
         "year",
+        "a0",
     }
 
     missing_columns = required_columns - set(manifest.columns)
@@ -332,10 +351,28 @@ def validate_manifest(manifest: pd.DataFrame, seed_reps: int) -> None:
 
     type_rules = {
         "SFH": (1, 1),
-        "TH":  (1, 2),
+        "TH":  (1, 1),
         "MFH": (3, 12),
         "AB":  (13, 20),
     }
+
+    tol = 1e-3
+    st = manifest[manifest["buildingType"].isin(["SFH", "TH"])].copy()
+    ratio = st["a_ref"] / st["a0"]
+
+    assert ratio.between(0.8 - tol, 1.3 + tol).all(), ("a_ref/a0 outside [0.8, 1.3]:\n"f"{st.loc[~ratio.between(0.8 - tol, 1.3 + tol), ['building_id', 'buildingType', 'buildingAgeBin', 'a_ref', 'a0']]}")
+
+    sfh = manifest[manifest["buildingType"] == "SFH"]
+    assert (sfh["a_ref"] <= SFH_MAX_AREA + 0.05).all(), "SFH a_ref above cap"
+
+    b = manifest.drop_duplicates("building_id")
+    rows = b[["buildingType", "buildingAgeBin", "n_persons"]].explode("n_persons")
+    rows["n_persons"] = rows["n_persons"].astype(int)
+    for t, g in rows.groupby("buildingType"):
+        m = g.groupby("buildingAgeBin")["n_persons"].mean()
+        if (m - m.mean()).abs().max() > 0.4:
+            warnings.warn(f"{t}: mean persons per flat varies by age bin:\n{m.round(2)}")
+
 
     for building_type, (low, high) in type_rules.items():
 
@@ -427,6 +464,7 @@ def validate_manifest(manifest: pd.DataFrame, seed_reps: int) -> None:
         "occControl",
         "comfortT_lb",
         "comfortT_ub",
+        "a0",
     ]
 
     for column in building_parameter_columns:
@@ -505,7 +543,7 @@ def single_run(row: dict, res_dir=RESULTS_DIR)-> tuple[str, str, tuple[str, str]
         params = row
         params.pop("run_id", None)
         params.pop("building_id", None)
-
+        a0 = params.pop("a0", None)
 
         cfg = tsib.BuildingConfiguration(params)
         bdg = tsib.Building(configurator=cfg)
@@ -530,7 +568,7 @@ def single_run(row: dict, res_dir=RESULTS_DIR)-> tuple[str, str, tuple[str, str]
         full_params["n_persons"] = json.dumps(full_params["n_persons"])
         full_params["apartment_seeds"] = json.dumps(full_params["apartment_seeds"])
         full_params["appliances"] = json.dumps(full_params["appliances"])
-
+        full_params["a0"] = a0
 
         timeseries = bdg.timeseries[["T", "Occupancy Home Active", "Occupancy Home Not Active", "Electricity Load", "Hot Water Load", "Heating Load",]].astype("float32")
 
@@ -621,7 +659,7 @@ def manifest_run(manifest_path = MANIFEST_PATH,res_dir = RESULTS_DIR, fail_log =
     print(f"Finished: {done} done, {failed} failed ->  {fail_log}")
 
 if __name__ == "__main__":
-    man = manifest(1,1,EPISCOPE_PATH,building_types=["SFH," "MFH", "TH", "AB"],seed=42, overwrite=True, years=[2025]) #, "MFH", "TH", "AB"
+    man = manifest(1,1,EPISCOPE_PATH,building_types=["SFH"],seed=42, overwrite=True, years=[2025]) #, "MFH", "TH", "AB"
     validate_manifest(man, seed_reps=1)
     start = time.time()
     manifest_run(MANIFEST_PATH,res_dir=RESULTS_DIR, fail_log=FAIL_LOG, max_cores=19)
