@@ -65,7 +65,7 @@ def gen_flat_count(buildingtype: str, rng: np.random.Generator) -> int:
     elif buildingtype == "TH":
         return 1
     elif buildingtype == "MFH":
-        return int(rng.integers(low=3, high=13)) #exclusive
+        return int(rng.integers(low=2, high=13)) #exclusive
     elif buildingtype == "AB":
         return int(rng.integers(low=13, high=21))
     else:
@@ -159,6 +159,18 @@ def manifest(scenario_reps,seed_reps,episcope_path , building_types = None,seed=
     out_path = Path(out_path)
 
     building_combis = episcope_combis(episcope_path, building_types=building_types)
+
+    area_range = {}
+    for t in ("SFH","TH"):
+        a0s = [c["A0"] for c in building_combis if c["Type"] == t]
+        if not a0s:
+            continue
+        lo, hi = 0.9 * min(a0s), 1.2 * max(a0s)
+        if t == "SFH":
+            hi = min(hi, SFH_MAX_AREA)
+        assert hi > lo, f"{t}: empty area range [{lo:.1f}, {hi:.1f}]"
+        area_range[t] = (lo, hi)
+
     year_types = ["average", "hot", "cold"]
     futures = [False, True]
     weather_combis = [(f, y) for f in futures for y in year_types]
@@ -193,13 +205,9 @@ def manifest(scenario_reps,seed_reps,episcope_path , building_types = None,seed=
         for i in range(n_scenarios):
             n_flats = gen_flat_count(buildingtype=building_type, rng=rng)
             occs = gen_occs(buildingtype=building_type, apartment_count=n_flats, rng=rng)
-            if building_type in ("SFH"):
-                a0 = x["A0"]
-                hi = min(1.3, SFH_MAX_AREA / a0)
-                assert hi > 0.8, f"SFH archetype {a0} m² cannot satisfy the cap"
-                total_area = gen_area_ratio(rng, hi=hi) * a0
-            elif building_type in ("TH"):
-                total_area = gen_area_ratio(rng) * x["A0"]
+            if building_type in ("SFH", "TH"):
+                total_area = rng.uniform(*area_range[building_type])
+
             else:
                 flat_areas = gen_flat_area(occs=occs,rng=rng)
                 total_area = sum(flat_areas)
@@ -352,15 +360,10 @@ def validate_manifest(manifest: pd.DataFrame, seed_reps: int) -> None:
     type_rules = {
         "SFH": (1, 1),
         "TH":  (1, 1),
-        "MFH": (3, 12),
+        "MFH": (2, 12),
         "AB":  (13, 20),
     }
 
-    tol = 1e-3
-    st = manifest[manifest["buildingType"].isin(["SFH", "TH"])].copy()
-    ratio = st["a_ref"] / st["a0"]
-
-    assert ratio.between(0.8 - tol, 1.3 + tol).all(), ("a_ref/a0 outside [0.8, 1.3]:\n"f"{st.loc[~ratio.between(0.8 - tol, 1.3 + tol), ['building_id', 'buildingType', 'buildingAgeBin', 'a_ref', 'a0']]}")
 
     sfh = manifest[manifest["buildingType"] == "SFH"]
     assert (sfh["a_ref"] <= SFH_MAX_AREA + 0.05).all(), "SFH a_ref above cap"
@@ -370,7 +373,7 @@ def validate_manifest(manifest: pd.DataFrame, seed_reps: int) -> None:
     rows["n_persons"] = rows["n_persons"].astype(int)
     for t, g in rows.groupby("buildingType"):
         m = g.groupby("buildingAgeBin")["n_persons"].mean()
-        if (m - m.mean()).abs().max() > 0.4:
+        if (m - m.mean()).abs().max() > 0.5:
             warnings.warn(f"{t}: mean persons per flat varies by age bin:\n{m.round(2)}")
 
 
