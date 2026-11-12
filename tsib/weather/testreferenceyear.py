@@ -82,13 +82,31 @@ def _parse_latlon_from_file(filename):
     lon = int(code[6:]) / 10000
     return lat, lon
 
-def _pick_station_file(region, year_type, future, seed):
+
+def station_codes(region, future):
+    folder = os.path.join(tsib.data.PATH, "weatherdata","TRY2045" if future else "TRY2015", f"{int(region):02d}")
+    return sorted({f.split("_")[1] for f in os.listdir(folder) if f.endswith(".dat")})
+
+def holdout_station(region):
+    codes = station_codes(region, future=False)
+    return codes[np.random.RandomState(10000 + int(region)).randint(len(codes))]
+
+
+
+def _pick_station_file(region, year_type, future, seed, station_pool="all"):
     variant = {"average": "Jahr", "hot": "Somm", "cold": "Wint"}[year_type]
     folder = os.path.join(
         tsib.data.PATH, "weatherdata",
         "TRY2045" if future else "TRY2015", f"{int(region):02d}",
     )
     candidates = sorted(f for f in os.listdir(folder) if f.endswith(f"_{variant}.dat"))
+
+    held = holdout_station(region)
+    if station_pool == "train":
+        candidates = [f for f in candidates if f.split("_")[1] != held]
+    elif station_pool == "holdout":
+        candidates = [f for f in candidates if f.split("_")[1] == held]
+
     if not candidates:
         raise FileNotFoundError(f"No TRY files for region {region}, variant {variant} in {folder}")
     chosen = np.random.RandomState(seed).choice(candidates)
@@ -281,7 +299,7 @@ def TRY2TMY(trydata):
     )
 
 def getISO12831weather(longitude=None, latitude=None, year_type="average",
-                        future=False, climate_region=None, seed=None, year=2010):
+                        future=False, climate_region=None, seed=None, year=2010,station_pool="all"):
     wzones = pd.read_csv(
         os.path.join(tsib.data.PATH, "weatherdata", "ISO12831", "T_zones_Ger_final.csv"),
         index_col=0, encoding="ISO-8859-1",
@@ -300,7 +318,7 @@ def getISO12831weather(longitude=None, latitude=None, year_type="average",
     if seed is None:
         seed = int(abs(latitude * 1000) + abs(longitude * 1000)) if latitude is not None else int(climate_region)
 
-    filepath = _pick_station_file(climate_region, year_type, future, seed)
+    filepath = _pick_station_file(climate_region, year_type, future, seed, station_pool=station_pool)
     station_lat, station_lon = _parse_latlon_from_file(os.path.basename(filepath))
     weather = readTRYnew(filepath, station_lat, station_lon, year=year)
     if latitude is None:

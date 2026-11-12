@@ -249,6 +249,13 @@ class Building(object):
         n_app = int(cfg["n_apartments"])
         n_slots = int(cfg["varyoccupancy"] * n_app)
 
+        # one ownership seed per apartment, reused across varyoccupancy variants
+        if cfg.get("app_ownership_seed") is not None:
+            base = np.random.RandomState(cfg["app_ownership_seed"]).choice(TOTAL_PROFILE_NUM, size=n_app, replace=False)
+            own_seeds = [int(base[k % n_app]) for k in range(n_slots)]
+        else:
+            own_seeds = None
+
         if isinstance(cfg["n_persons"], (list, tuple, np.ndarray)):
             if len(cfg["n_persons"]) != n_app:
                 raise ValueError(
@@ -264,6 +271,7 @@ class Building(object):
             cfg["weather_native"],
             self.IDentries["weather"],
             seeds=seeds,
+            app_ownership_seeds=own_seeds,
             ignore_weather=True, #ToDo prüfen wieso ignore hier true ist => definiert nur das wetter nicht in dem namen für caching verwendet wird
             mean_load=cfg["mean_load"],
             freq=cfg["freq"],
@@ -419,7 +427,7 @@ class Building(object):
             if freq_delta <= pd.Timedelta(hours=1):
                 hourly = series.resample("h").mean()
                 hourly.index = hourly.index + pd.Timedelta(minutes=30)
-                return series.reindex(hourly_index)
+                return hourly.reindex(hourly_index)
             return tsib.resampletoindex(series, hourly_index)
 
         Q_ig = pd.Series(cfg["Q_ig"], index=self.timeseries.index)

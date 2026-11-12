@@ -88,6 +88,8 @@ KWARG_TYPES = {
     "hasPhotovoltaic": bool,  # if the building has a photovoltaic panel
     "varyoccupancy": int,  # for how many occupancy profiles the building shall be optimized
     "seed": int,  # overrides the derived state_seed to allow independent stochastic realizations of the same building
+    "weather_seed": int,         # TRY station pick; shared across reps of a building
+    "app_ownership_seed": int,   # appliance ownership; shared across reps of a building
     "mean_load": bool,  # if the fluctuative profile or the mean hourly profile should be taken
     "a_roof": "NOT_IMPLEMENTED",  # the total roof area
     "windows_refurbished": "NOT_IMPLEMENTED",  # if the windows have allready been replaced
@@ -103,6 +105,7 @@ KWARG_TYPES = {
     "cores": int, #number of cores to use as default
     "useCache": bool, #wether result csv are stored
     "year": int,  # calendar year used for weather index, holidays and weekdays (non-leap)
+    "station_pool": str,  # "all" | "train" | "holdout"
 
 
 
@@ -145,6 +148,7 @@ KWARG_DEFAULTS = {
     "cores": 1,
     "useCache": False,
     "year": 2010,
+    "station_pool": "all",
 }
 
 
@@ -356,6 +360,9 @@ class BuildingConfiguration(object):
             else:
                 cfg["weather"] = kwgs.pop("weatherData")
 
+                kwgs.pop("weather_seed", None)
+                kwgs.pop("station_pool", None)
+
                 for key in weather_units:
                     if not key in cfg["weather"].columns:
                         raise ValueError('Column "' + key + '" required in weatherData')
@@ -375,7 +382,8 @@ class BuildingConfiguration(object):
             cfg["year_type"] = kwgs.pop("year_type")
             cfg["future"] = kwgs.pop("future")
             cfg["climateRegion"] = kwgs.pop("climateRegion")
-            weather_seed = kwgs.get("seed")
+            weather_seed = kwgs.pop("weather_seed", kwgs.get("seed"))
+            station_pool = kwgs.pop("station_pool", "all")
 
             (cfg["weather"],
              cfg["design_T_min"],
@@ -392,6 +400,7 @@ class BuildingConfiguration(object):
                 climate_region=cfg["climateRegion"],
                 seed = weather_seed,
                 year=cfg["year"],
+                station_pool=station_pool,
             )
             self.IDentries["year_type"] = cfg["year_type"]
             self.IDentries["future"] = cfg["future"]
@@ -505,6 +514,10 @@ class BuildingConfiguration(object):
                 state_seed = state_seed[:8]
             state_seed = int(state_seed)
             cfg['state_seed'] = state_seed
+
+        cfg["app_ownership_seed"] = kwgs.pop("app_ownership_seed", None)
+        if cfg["app_ownership_seed"] is not None:
+            self.IDentries["app_ownership_seed"] = cfg["app_ownership_seed"]
 
         return cfg
 

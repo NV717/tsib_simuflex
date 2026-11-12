@@ -24,10 +24,40 @@ EPISCOPE_PATH = DATA_DIR / "episcope" / "episcope.csv"
 RESULTS_DIR = PROJECT_ROOT / "Generation" / "results"
 
 MANIFEST_PATH = PROJECT_ROOT / "Generation"/ "manifest.parquet"
+
+SPLITS = {"train": 0, "val": 1, "test": 2, "building_holdout": 3,"region_holdout": 4, "station_holdout": 5, "year_holdout": 6}
+
+HOLDOUT_REGIONS = {11}
+
+HOLDOUT_ARCHETYPES = {("TH", "DE.08", "Semi")}
+
+SPLIT_STRIDE = 100000000
+SEED_BASE = 10000000
+APP_SEED_BASE = 20000000
+WEATHER_SEED_BASE = 30000000
+
+
+FIXED_SEED_FRACTION = {
+    "train": 0.2,
+    "val": 1.0,
+    "test": 1.0,
+    "building_holdout": 1.0,
+    "region_holdout": 1.0,
+    "station_holdout": 1.0,
+    "year_holdout":1.0,
+}
+
+NONFIXED_OFFSET = 5000000
+
 FAIL_LOG = PROJECT_ROOT / "Generation" / "failures.log"
 STARTED_LOG = PROJECT_ROOT / "Generation" / "started.log"
 
 SFH_MAX_AREA = 280.0 #cap for SFH area since there is a weird tabula archetype in the episcope csv with 2 flats
+
+EPISCOPE_META = {"a0": "A0", "n0": "n0", "sh_spec": "SH_spec"}
+
+def split_paths(split):
+    return PROJECT_ROOT / "Generation" / f"manifest_{split}.parquet",RESULTS_DIR / split
 
 def episcope_combis(path: str, country: str = "DE", building_types = None)-> dict:
     if building_types is None:
@@ -75,12 +105,14 @@ def gen_flat_count(buildingtype: str, rng: np.random.Generator) -> int:
 #https://www.destatis.de/DE/Themen/Gesellschaft-Umwelt/Wohnen/Tabellen/tabelle-wo2-eigentuemerwohnungen.html
 #probs sind für haushalte
 def gen_occs(buildingtype: str, apartment_count: int, rng: np.random.Generator) ->list:
+    if buildingtype in ("SFH", "TH"):
+        return [int(rng.integers(low=1, high=6)) for _ in range(apartment_count)]
 
     occ_probs = {
-        "SFH": (0.245114, 0.402323, 0.154148, 0.148869, 0.04954599999999998),
+        #"SFH": (0.245114, 0.402323, 0.154148, 0.148869, 0.04954599999999998), #equal draw insted
         "MFH": (0.490622, 0.307419, 0.101949, 0.074417, 0.025592999999999977),
         "AB": (0.490622, 0.307419, 0.101949, 0.074417, 0.025592999999999977),
-        "TH": (0.236817, 0.400092, 0.157261, 0.154371, 0.05145899999999992),
+        #"TH": (0.236817, 0.400092, 0.157261, 0.154371, 0.05145899999999992),
     }
     probs = occ_probs[buildingtype]
 
@@ -143,15 +175,27 @@ def non_leap_years(n, start=2010):
         y += 1
     return years
 
-def manifest(scenario_reps,seed_reps,episcope_path , building_types = None,seed=42, out_path=MANIFEST_PATH, overwrite=False, years=None):
+def manifest(scenario_reps,seed_reps,episcope_path ,
+             building_types = None,seed=42, out_path=MANIFEST_PATH,
+             overwrite=False, years=None, split="train",fixed_seed_reps=None, years_per_building=None):
+    off = SPLITS[split] * SPLIT_STRIDE
+
+    if fixed_seed_reps is None:
+        fixed_seed_reps = seed_reps
+
     if years is None:
-        years = non_leap_years(seed_reps)
+        years = non_leap_years(1)
 
     years = [int(y) for y in years]
-    if len(years) < seed_reps or len(set(years[:seed_reps])) != seed_reps:
-        raise ValueError(f"Need at least {seed_reps} distinct years, got {years}")
-    if any(calendar.isleap(y) for y in years[:seed_reps]):
+    if len(set(years)) != len(years):
+        raise ValueError(f"years must be distinct, got {years}")
+    if any(calendar.isleap(y) for y in years):
         raise ValueError("years must be non-leap (weather data has 8760 rows)")
+
+    if years_per_building is None:
+        years_per_building = len(years)  # old behaviour
+    if years_per_building != len(years) and years_per_building != 1:
+        raise ValueError("years_per_building must be 1 or len(years)")
 
     if building_types is None:
         building_types = ["SFH", "MFH", "TH", "AB"]
@@ -171,15 +215,30 @@ def manifest(scenario_reps,seed_reps,episcope_path , building_types = None,seed=
         assert hi > lo, f"{t}: empty area range [{lo:.1f}, {hi:.1f}]"
         area_range[t] = (lo, hi)
 
+    is_holdout = lambda c: (c["Type"], c["AgeBin"], c["Surrounding"]) in HOLDOUT_ARCHETYPES
+    if split == "holdout":
+        building_combis = [c for c in building_combis if is_holdout(c)]
+    else:
+        building_combis = [c for c in building_combis if not is_holdout(c)]
+    if not building_combis:
+        raise ValueError(f"No archetypes left for split '{split}'")
+
+
     year_types = ["average", "hot", "cold"]
     futures = [False, True]
     weather_combis = [(f, y) for f in futures for y in year_types]
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng([seed, SPLITS[split]])
     rows = []
     building_id = 0
 
     def building_type_reps(building_type):
         return scenario_reps[building_type] if isinstance(scenario_reps, dict) else scenario_reps
+
+    total_buildings = sum(building_type_reps(c["Type"]) for c in building_combis)
+    n_fixed = int(round(FIXED_SEED_FRACTION[split] * total_buildings))
+    fixed_ids = set(np.random.default_rng([seed, SPLITS[split], 1]).choice(total_buildings, size=n_fixed, replace=False).tolist())
+
+
 
     for x in building_combis:
         building_type = x["Type"]
@@ -194,12 +253,21 @@ def manifest(scenario_reps,seed_reps,episcope_path , building_types = None,seed=
         weather_scenario = base + [weather_combis[i] for i in extra_idx]
         rng.shuffle(weather_scenario)
 
-        climate_regions = np.arange(1, 16)
+        all_regions = np.arange(1, 16)
+        if split == "region_holdout":
+            climate_regions = np.array(sorted(HOLDOUT_REGIONS))
+        else:
+            climate_regions = np.array([r for r in all_regions if r not in HOLDOUT_REGIONS])
         base = np.tile(climate_regions,n_scenarios // len(climate_regions))
         remainder = n_scenarios % len(climate_regions)
         extra = rng.choice(climate_regions,size=remainder,replace=False)
         region_scenario = np.concatenate([base, extra])
         rng.shuffle(region_scenario)
+
+        if years_per_building == 1:
+            year_scenario = list(years) * (n_scenarios // len(years))
+            year_scenario += [years[i] for i in rng.choice(len(years), size=n_scenarios % len(years), replace=False)]
+            rng.shuffle(year_scenario)
 
 
         for i in range(n_scenarios):
@@ -213,41 +281,56 @@ def manifest(scenario_reps,seed_reps,episcope_path , building_types = None,seed=
                 total_area = sum(flat_areas)
             clima_region = region_scenario[i]
             future, year_type = weather_scenario[i]
-            for rep in range(seed_reps):
-                rows.append(dict(
-                    country = "DE",
-                    buildingType = building_type,
-                    surrounding = surrounding,
-                    buildingAgeBin = buildingAgeBin,
-                    a_ref = round(total_area,3),
-                    a0=x["A0"],
-                    n_apartments = n_flats,
-                    year_type = year_type,
-                    future = future,
-                    climateRegion = clima_region,
-                    n_persons = occs,
-                    freq = "1min",
-                    hasFirePlace = False,
-                    varyoccupancy = 1,
-                    mean_load = False,
-                    nightReduction = True,
-                    capControl = True,
-                    occControl = False,
-                    comfortT_lb = 21.0,
-                    comfortT_ub = 24.0,
-                    cores = 1,
-                    useCache=False,
-                    year=years[rep],
 
-                    building_id = building_id,
+            bid = off + building_id
+            is_fixed = building_id in fixed_ids
+            n_reps = fixed_seed_reps if is_fixed else seed_reps
 
-                )
-                 )
+            building_years = [year_scenario[i]] if years_per_building == 1 else years
+
+            for year in building_years:
+                for rep in range(n_reps):
+                    unit = building_id if is_fixed else NONFIXED_OFFSET + len(rows)
+
+                    rows.append(dict(
+                        country = "DE",
+                        buildingType = building_type,
+                        surrounding = surrounding,
+                        buildingAgeBin = buildingAgeBin,
+                        a_ref = round(total_area,3),
+                        **{col: x[key] for col, key in EPISCOPE_META.items()},
+                        n_apartments = n_flats,
+                        year_type = year_type,
+                        future = future,
+                        climateRegion = clima_region,
+                        n_persons = occs,
+                        freq = "1min",
+                        hasFirePlace = False,
+                        varyoccupancy = 1,
+                        mean_load = False,
+                        nightReduction = True,
+                        capControl = True,
+                        occControl = False,
+                        comfortT_lb = 20.0,
+                        comfortT_ub = 24.0,
+                        cores = 1,
+                        useCache=False,
+                        year=year,
+                        rep=rep,
+                        weather_seed=off + WEATHER_SEED_BASE + unit,
+                        station_pool="holdout" if split == "station_holdout" else "train",
+                        app_ownership_seed=off + APP_SEED_BASE + unit,
+                        fixed_seeds=is_fixed,
+                        building_id = bid,
+                        split=split,
+
+                    )
+                     )
             building_id += 1
 
     manifest = pd.DataFrame(rows)
-    manifest["run_id"] = manifest.index.map(lambda i: f"run_{i:06d}")
-    manifest["seed"]= 1000000 + manifest.index
+    manifest["run_id"] = manifest.index.map(lambda i: f"{split}_run_{i:06d}")
+    manifest["seed"] = off + SEED_BASE + manifest.index
     if out_path.exists() and not overwrite:
         raise FileExistsError(out_path)
     manifest.to_parquet(out_path)
@@ -255,7 +338,13 @@ def manifest(scenario_reps,seed_reps,episcope_path , building_types = None,seed=
 
 #Validation
 
-def validate_manifest(manifest: pd.DataFrame, seed_reps: int) -> None:
+def validate_manifest(manifest: pd.DataFrame, seed_reps: int, split="train", years=None,fixed_seed_reps=None,years_per_building=None) -> None:
+    off = SPLITS[split] * SPLIT_STRIDE
+
+    if fixed_seed_reps is None:
+        fixed_seed_reps = seed_reps
+
+
     required_columns = {
         "country",
         "buildingType",
@@ -282,30 +371,62 @@ def validate_manifest(manifest: pd.DataFrame, seed_reps: int) -> None:
         "comfortT_lb",
         "comfortT_ub",
         "year",
-        "a0",
+        *EPISCOPE_META,
+        "weather_seed",
+        "app_ownership_seed",
+        "split",
+        "station_pool",
+        "rep",
+        "fixed_seeds",
     }
 
     missing_columns = required_columns - set(manifest.columns)
 
     assert not missing_columns, (f"Manifest is missing required columns: {sorted(missing_columns)}")
 
-    assert len(manifest) > 0, "Manifest is empty."
+    assert len(manifest) > 0, "Manifest is empty"
 
-    assert not manifest.isna().any().any(), ("Manifest contains missing values.")
+    assert not manifest.isna().any().any(), "Manifest contains missing values"
 
-    assert manifest["run_id"].is_unique, ("run_id is not unique.")
+    assert manifest["run_id"].is_unique, "run_id is not unique"
 
-    assert manifest["seed"].is_unique, ("seed is not unique.")
+    assert manifest["seed"].is_unique, "seed is not unique"
+
+    b_fixed = manifest.groupby("building_id")["fixed_seeds"].first()
+    n_buildings = len(b_fixed)
+    n_fixed_obs = int(b_fixed.sum())
+    assert n_fixed_obs == int(round(FIXED_SEED_FRACTION[split] * n_buildings)), "wrong number of fixed-seed buildings"
+
+    nonfixed_rows = int((~manifest["fixed_seeds"]).sum())
+    expected_unique = n_fixed_obs + nonfixed_rows
+    assert manifest["weather_seed"].nunique() == expected_unique
+    assert manifest["app_ownership_seed"].nunique() == expected_unique
+
+    for col in ("weather_seed", "app_ownership_seed"):
+        fx = manifest[manifest["fixed_seeds"]].groupby("building_id")[col].nunique()
+        assert (fx == 1).all(), f"{col} must be constant for fixed-seed buildings"
+        nf = manifest[~manifest["fixed_seeds"]]
+        assert nf[col].is_unique, f"{col} must be unique per row for non-fixed buildings"
+
+    all_seed_values = pd.concat([manifest["seed"], manifest["weather_seed"], manifest["app_ownership_seed"]])
+    assert all_seed_values.max() < 2**32, "seed exceeds 2**32."
+    assert manifest["seed"].between(off + SEED_BASE, off + APP_SEED_BASE - 1).all()
+    assert manifest["app_ownership_seed"].between(off + APP_SEED_BASE, off + WEATHER_SEED_BASE - 1).all()
+    assert manifest["weather_seed"].between(off + WEATHER_SEED_BASE, off + SPLIT_STRIDE - 1).all()
+
+    if years is not None:
+        assert set(manifest["year"]) == set(years)
 
     reps = manifest.groupby("building_id").size()
+    n_years = manifest["year"].nunique()
+    yb = years_per_building or n_years
 
-    assert (reps == seed_reps).all(), (
-        "Not every building_id has the expected number of "
-        f"seed repetitions ({seed_reps}).\n"
-        f"Observed repetition counts:\n{reps.value_counts().sort_index()}"
-    )
+    exp_reps = b_fixed.map(lambda f: yb * (fixed_seed_reps if f else seed_reps))
+    assert (reps == exp_reps).all(), f"Unexpected number of rows per building:\n{reps.value_counts()}"
+    expected_rows = int(exp_reps.sum())
 
-    expected_rows = manifest["building_id"].nunique() * seed_reps
+    yrs_obs = manifest.groupby("building_id")["year"].nunique()
+    assert (yrs_obs == yb).all(), "Wrong number of years per building."
 
     assert len(manifest) == expected_rows, (
         f"Row count mismatch: got {len(manifest)}, "
@@ -353,9 +474,10 @@ def validate_manifest(manifest: pd.DataFrame, seed_reps: int) -> None:
 
     assert not manifest["year"].map(calendar.isleap).any(), ("year contains leap years.")
 
-    years_per_building = manifest.groupby("building_id")["year"].nunique()
+    per_by = manifest.groupby(["building_id", "year"]).size()
+    exp_per_by = per_by.index.get_level_values("building_id").map(b_fixed).map(lambda f: fixed_seed_reps if f else seed_reps)
 
-    assert (years_per_building == seed_reps).all(), ("Each building must use a different year in every seed repetition.")
+    assert (per_by.to_numpy() == np.asarray(exp_per_by)).all(), "Wrong reps per building/year."
 
     type_rules = {
         "SFH": (1, 1),
@@ -467,8 +589,11 @@ def validate_manifest(manifest: pd.DataFrame, seed_reps: int) -> None:
         "occControl",
         "comfortT_lb",
         "comfortT_ub",
-        "a0",
+        *EPISCOPE_META,
+        "station_pool",
+        "fixed_seeds",
     ]
+
 
     for column in building_parameter_columns:
 
@@ -485,7 +610,7 @@ def validate_manifest(manifest: pd.DataFrame, seed_reps: int) -> None:
 
 
     expected_run_ids = [
-        f"run_{i:06d}"
+        f"{split}_run_{i:06d}"
         for i in range(len(manifest))
     ]
 
@@ -494,7 +619,7 @@ def validate_manifest(manifest: pd.DataFrame, seed_reps: int) -> None:
     )
 
     expected_seeds = (
-        1_000_000 + np.arange(len(manifest))
+        off + SEED_BASE + np.arange(len(manifest))
     )
 
     assert np.array_equal(
@@ -546,7 +671,10 @@ def single_run(row: dict, res_dir=RESULTS_DIR)-> tuple[str, str, tuple[str, str]
         params = row
         params.pop("run_id", None)
         params.pop("building_id", None)
-        a0 = params.pop("a0", None)
+        meta = {c: params.pop(c, None) for c in EPISCOPE_META}
+        split = params.pop("split", None)
+        rep = params.pop("rep", None)
+        fixed_seeds = params.pop("fixed_seeds", None)
 
         cfg = tsib.BuildingConfiguration(params)
         bdg = tsib.Building(configurator=cfg)
@@ -565,13 +693,17 @@ def single_run(row: dict, res_dir=RESULTS_DIR)-> tuple[str, str, tuple[str, str]
             "maxLoadViolation_kW": violation,
             "runtime_seconds": time.time() - t0,
             "resolved_year": int(bdg.timeseries.index[0].year),
+            "app_ownership_seed": bdg.cfg.get("app_ownership_seed"),
         }
 
         full_params = {**params, **resolved}
         full_params["n_persons"] = json.dumps(full_params["n_persons"])
         full_params["apartment_seeds"] = json.dumps(full_params["apartment_seeds"])
         full_params["appliances"] = json.dumps(full_params["appliances"])
-        full_params["a0"] = a0
+        full_params["split"] = split
+        full_params["rep"] = rep
+        full_params["fixed_seeds"] = fixed_seeds
+        full_params.update(meta)
 
         timeseries = bdg.timeseries[["T", "Occupancy Home Active", "Occupancy Home Not Active", "Electricity Load", "Hot Water Load", "Heating Load",]].astype("float32")
 
@@ -662,9 +794,14 @@ def manifest_run(manifest_path = MANIFEST_PATH,res_dir = RESULTS_DIR, fail_log =
     print(f"Finished: {done} done, {failed} failed ->  {fail_log}")
 
 if __name__ == "__main__":
-    man = manifest(1,1,EPISCOPE_PATH,building_types=["SFH"],seed=42, overwrite=True, years=[2025]) #, "MFH", "TH", "AB"
-    validate_manifest(man, seed_reps=1)
+    split = "train"
+    YEARS = [2021, 2022, 2023, 2025, 2026, 2029, 2030]
+    mpath, rdir = split_paths(split)
+    man = manifest(scenario_reps=1,seed_reps=1,fixed_seed_reps=1,episcope_path=EPISCOPE_PATH,building_types=["SFH", "MFH", "TH", "AB"],
+                   seed=42, overwrite=True, years=YEARS,split=split, out_path=mpath, years_per_building=1) #, "MFH", "TH", "AB"
+    validate_manifest(man, seed_reps=1, fixed_seed_reps=1, years=YEARS,
+                      years_per_building=1, split=split)
     start = time.time()
-    manifest_run(MANIFEST_PATH,res_dir=RESULTS_DIR, fail_log=FAIL_LOG, max_cores=19)
+    manifest_run(mpath,res_dir=rdir, fail_log=FAIL_LOG, max_cores=19)
     elapsed = time.time() - start
     print(f"Total runtime: {datetime.timedelta(seconds=round(elapsed))}")

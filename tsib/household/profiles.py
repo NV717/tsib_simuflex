@@ -51,7 +51,7 @@ def simSingleHousehold(residents, year, seed=None,**elp_kwargs):
     return result
 
 
-def _run_household_year(queue, residents, year, work_seed, **elp_kwargs):
+def _run_household_year(queue, residents, year, work_seed, app_ownership_seed=None,**elp_kwargs):
     """
     Parallel Worker Function to build an Electrical Profile for the given
     number of residents in the given year and run it. It is given a queue to
@@ -74,7 +74,7 @@ def _run_household_year(queue, residents, year, work_seed, **elp_kwargs):
     try:
         np.random.seed(work_seed)
         data_ex_main = DataExchangeCsv()
-        elp = ElectricalLoadProfile(data_ex_main, residents, **elp_kwargs)
+        elp = ElectricalLoadProfile(data_ex_main, residents, app_ownership_seed=app_ownership_seed, **elp_kwargs)
         result = elp.get_rescheduled_profiles(year)
         result.attrs["appliances"] = list(elp.owned_appliances)
         result.attrs["day_types"] = list(elp.day_types)
@@ -93,6 +93,7 @@ def simHouseholdsParallel(
     singleProfiles=False,
     cores=mp.cpu_count() - 1,
     seeds = None,
+    app_ownership_seeds = None,
     **elp_kwargs
 ):
     """
@@ -139,6 +140,10 @@ def simHouseholdsParallel(
         masterseed = 7
         seeds = [masterseed + i for i in range(no_of_households)]
     #    ws = [2]*no_of_households  # Test if workerseeds are all set the same all Households will be the same
+
+    if app_ownership_seeds is None:
+        app_ownership_seeds = [None] * no_of_households
+
     if last_loop_calcs > 0:
         no_loops = no_of_full_loops + 1
     else:
@@ -158,7 +163,7 @@ def simHouseholdsParallel(
         processes = [
             mp.Process(
                 target=_run_household_year,
-                args=(output, residents[x + (cores * runs)], year, seeds[x + (cores * runs)]),
+                args=(output, residents[x + (cores * runs)], year, seeds[x + (cores * runs)],app_ownership_seeds[x + (cores * runs)]),
                 kwargs=(elp_kwargs),
             )
             for x in range(no_parallel)
@@ -207,6 +212,7 @@ def getHouseholdProfiles(
     weather_data,
     weatherID,
     seeds=[0],
+    app_ownership_seeds=None,
     ignore_weather=True,
     mean_load=True,
     cores=mp.cpu_count() - 1,
@@ -257,11 +263,20 @@ def getHouseholdProfiles(
     else:
         persons_by_seed = {seed: int(n_persons) for seed in seeds}
 
+    if app_ownership_seeds is None:
+        own_by_seed = {s: None for s in seeds}
+    else:
+        if len(app_ownership_seeds) != len(seeds):
+            raise ValueError("app_ownership_seeds must match length of seeds")
+        own_by_seed = dict(zip(seeds, app_ownership_seeds))
+
     # get the potential profile names
     if use_cache:
         filenames = {}
         for seed in seeds:
             profile_ID = "Profile" + "_occ" + str(persons_by_seed[seed]) + "_seed" + str(seed)
+            if own_by_seed[seed] is not None:
+                profile_ID += "_own" + str(own_by_seed[seed])
             profile_ID = profile_ID + "_yr" + str(year)
             if not ignore_weather:
                 profile_ID = profile_ID + "_wea" + str(weatherID)
@@ -288,6 +303,7 @@ def getHouseholdProfiles(
     holiday_doys = OpenDHW.get_holidays(country_code="DE", year=year)
     missing_seeds = list(not_existing_profiles.keys())
     missing_persons = [persons_by_seed[s] for s in missing_seeds]
+    missing_own = [own_by_seed[s] for s in missing_seeds]
 
     # run in parallel all profiles
     if len(not_existing_profiles) > 1:
@@ -303,6 +319,7 @@ def getHouseholdProfiles(
             freq=freq,
             holidays=holiday_doys,
             seeds=missing_seeds,
+            app_ownership_seeds=missing_own,
 
         )
     # if single profile just create one profile and avoid multiprocessing
@@ -316,6 +333,7 @@ def getHouseholdProfiles(
             freq=freq,
             holidays=holiday_doys,
             seed=missing_seeds[0],
+            app_ownership_seed=missing_own[0],
         )
         new_profiles = [one_profile]
     else:
