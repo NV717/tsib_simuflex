@@ -25,9 +25,9 @@ RESULTS_DIR = PROJECT_ROOT / "Generation" / "results"
 
 MANIFEST_PATH = PROJECT_ROOT / "Generation"/ "manifest.parquet"
 
-SPLITS = {"train": 0, "val": 1, "test": 2, "building_holdout": 3,"region_holdout": 4, "station_holdout": 5, "year_holdout": 6}
+SPLITS = {"train": 0, "val": 1, "test": 2, "building_holdout": 3, "station_holdout": 4, "year_holdout": 5}
 
-HOLDOUT_REGIONS = {11}
+HOLDOUT_REGIONS = {}
 
 HOLDOUT_ARCHETYPES = {("TH", "DE.08", "Semi")}
 
@@ -42,7 +42,6 @@ FIXED_SEED_FRACTION = {
     "val": 1.0,
     "test": 1.0,
     "building_holdout": 1.0,
-    "region_holdout": 1.0,
     "station_holdout": 1.0,
     "year_holdout":1.0,
 }
@@ -216,7 +215,7 @@ def manifest(scenario_reps,seed_reps,episcope_path ,
         area_range[t] = (lo, hi)
 
     is_holdout = lambda c: (c["Type"], c["AgeBin"], c["Surrounding"]) in HOLDOUT_ARCHETYPES
-    if split == "holdout":
+    if split == "building_holdout":
         building_combis = [c for c in building_combis if is_holdout(c)]
     else:
         building_combis = [c for c in building_combis if not is_holdout(c)]
@@ -304,6 +303,7 @@ def manifest(scenario_reps,seed_reps,episcope_path ,
                         future = future,
                         climateRegion = clima_region,
                         n_persons = occs,
+                        n_persons_sum=int(sum(occs)),
                         freq = "1min",
                         hasFirePlace = False,
                         varyoccupancy = 1,
@@ -356,6 +356,7 @@ def validate_manifest(manifest: pd.DataFrame, seed_reps: int, split="train", yea
         "future",
         "climateRegion",
         "n_persons",
+        "n_persons_sum",
         "freq",
         "hasFirePlace",
         "cores",
@@ -391,6 +392,9 @@ def validate_manifest(manifest: pd.DataFrame, seed_reps: int, split="train", yea
     assert manifest["run_id"].is_unique, "run_id is not unique"
 
     assert manifest["seed"].is_unique, "seed is not unique"
+
+    assert (manifest["n_persons_sum"] == manifest["n_persons"].map(sum)).all(), (
+        "n_persons_sum does not match the sum of n_persons.")
 
     b_fixed = manifest.groupby("building_id")["fixed_seeds"].first()
     n_buildings = len(b_fixed)
@@ -674,6 +678,7 @@ def single_run(row: dict, res_dir=RESULTS_DIR)-> tuple[str, str, tuple[str, str]
         meta = {c: params.pop(c, None) for c in EPISCOPE_META}
         split = params.pop("split", None)
         rep = params.pop("rep", None)
+        n_persons_sum = params.pop("n_persons_sum", None)
         fixed_seeds = params.pop("fixed_seeds", None)
 
         cfg = tsib.BuildingConfiguration(params)
@@ -702,6 +707,7 @@ def single_run(row: dict, res_dir=RESULTS_DIR)-> tuple[str, str, tuple[str, str]
         full_params["appliances"] = json.dumps(full_params["appliances"])
         full_params["split"] = split
         full_params["rep"] = rep
+        full_params["n_persons_sum"] = n_persons_sum
         full_params["fixed_seeds"] = fixed_seeds
         full_params.update(meta)
 
@@ -793,15 +799,49 @@ def manifest_run(manifest_path = MANIFEST_PATH,res_dir = RESULTS_DIR, fail_log =
 
     print(f"Finished: {done} done, {failed} failed ->  {fail_log}")
 
+# if __name__ == "__main__":
+#     split = "train"
+#     YEARS = [2021, 2022, 2023, 2025, 2026, 2029, 2030]
+#     mpath, rdir = split_paths(split)
+#     man = manifest(scenario_reps=1,seed_reps=1,fixed_seed_reps=1,episcope_path=EPISCOPE_PATH,building_types=["SFH", "MFH", "TH", "AB"],
+#                    seed=42, overwrite=True, years=YEARS,split=split, out_path=mpath, years_per_building=1) #, "MFH", "TH", "AB"
+#     validate_manifest(man, seed_reps=1, fixed_seed_reps=1, years=YEARS,
+#                       years_per_building=1, split=split)
+#     start = time.time()
+#     manifest_run(mpath,res_dir=rdir, fail_log=FAIL_LOG, max_cores=19)
+#     elapsed = time.time() - start
+#     print(f"Total runtime: {datetime.timedelta(seconds=round(elapsed))}")
+# SPLITS = {"train": 0, "val": 1, "test": 2, "building_holdout": 3,"region_holdout": 4, "station_holdout": 5, "year_holdout": 6}
+YEARS_TRAIN = [2021, 2022, 2023, 2025, 2026, 2029, 2030]
+#YEARS_TRAIN = [2021]
+BUILDING_TYPES=["SFH", "MFH", "TH", "AB"]
+SPLIT_CONFIG = {
+    # scenario_reps, seed_reps, fixed_seed_reps, years, years_per_building
+    "train":           dict(scenario_reps=250, seed_reps=1, fixed_seed_reps=2,years=YEARS_TRAIN,years_per_building=1,seed=42),
+    "val":             dict(scenario_reps=10,   seed_reps=3, fixed_seed_reps=3, years=[2021, 2023],years_per_building=None,seed=43),
+    "test":            dict(scenario_reps=5,   seed_reps=3, fixed_seed_reps=3, years=[2023, 2026,2029], years_per_building=None,seed=44),
+    "building_holdout":         dict(scenario_reps=10,  seed_reps=3, fixed_seed_reps=3, years=[2022, 2025],years_per_building=None,seed=45),
+    "station_holdout": dict(scenario_reps=3,   seed_reps=3, fixed_seed_reps=3, years=[2022, 2029], years_per_building=None,seed=46),
+    "year_holdout": dict(scenario_reps=3,   seed_reps=3, fixed_seed_reps=3, years=[2018], years_per_building=None,seed=47),
+
+}
+
 if __name__ == "__main__":
-    split = "train"
-    YEARS = [2021, 2022, 2023, 2025, 2026, 2029, 2030]
-    mpath, rdir = split_paths(split)
-    man = manifest(scenario_reps=1,seed_reps=1,fixed_seed_reps=1,episcope_path=EPISCOPE_PATH,building_types=["SFH", "MFH", "TH", "AB"],
-                   seed=42, overwrite=True, years=YEARS,split=split, out_path=mpath, years_per_building=1) #, "MFH", "TH", "AB"
-    validate_manifest(man, seed_reps=1, fixed_seed_reps=1, years=YEARS,
-                      years_per_building=1, split=split)
-    start = time.time()
-    manifest_run(mpath,res_dir=rdir, fail_log=FAIL_LOG, max_cores=19)
-    elapsed = time.time() - start
-    print(f"Total runtime: {datetime.timedelta(seconds=round(elapsed))}")
+    splits = ["train", "val", "test","building_holdout","station_holdout","year_holdout"]
+    simulate = False
+
+    for split in splits:
+        cfg = SPLIT_CONFIG[split]
+        mpath, rdir = split_paths(split)
+        man = manifest(episcope_path=EPISCOPE_PATH, building_types=["SFH", "MFH", "TH", "AB"], #, "MFH", "TH", "AB"
+                        overwrite=True, split=split, out_path=mpath,**cfg)
+        validate_manifest(man, seed_reps=cfg["seed_reps"], fixed_seed_reps=cfg["fixed_seed_reps"],
+                          years=cfg["years"], years_per_building=cfg["years_per_building"], split=split)
+        print(f"{split}: {len(man):,} runs")
+
+    if simulate:
+        for split in splits:
+            mpath, rdir = split_paths(split)
+            start = time.time()
+            manifest_run(mpath, res_dir=rdir, fail_log=FAIL_LOG, max_cores=19)
+            print(f"{split} runtime: {datetime.timedelta(seconds=round(time.time() - start))}")
